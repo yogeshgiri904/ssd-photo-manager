@@ -1,0 +1,23 @@
+{
+  "/Users/yogesh/my-projects/Photo-manager-ssd/DriveLens/Storage/BookmarkStore.swift" : {
+    "const-values" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/BookmarkStore.swiftconstvalues",
+    "dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/BookmarkStore.d",
+    "diagnostics" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/BookmarkStore.dia",
+    "object" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/BookmarkStore.o",
+    "swift-dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/BookmarkStore.swiftdeps"
+  },
+  "/Users/yogesh/my-projects/Photo-manager-ssd/DriveLens/Storage/CatalogueDatabase.swift" : {
+    "const-values" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/CatalogueDatabase.swiftconstvalues",
+    "dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/CatalogueDatabase.d",
+    "diagnostics" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/CatalogueDatabase.dia",
+    "object" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/CatalogueDatabase.o",
+    "swift-dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/CatalogueDatabase.swiftdeps"
+  },
+  "/Users/yogesh/my-projects/Photo-manager-ssd/DriveLens/Storage/CataloguePaths.swift" : {
+    "const-values" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/CataloguePaths.swiftconstvalues",
+    "dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/CataloguePaths.d",
+    "diagnostics" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/CataloguePaths.dia",
+    "object" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/CataloguePaths.o",
+    "swift-dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/CataloguePaths.swiftdeps"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "/Users/yogesh/my-projects/Photo-manager-ssd/DriveLens/Metadata/VideoMetadataReader.swift" : {
+    "const-values" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/VideoMetadataReader.swiftconstvalues",
+    "dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/VideoMetadataReader.d",
+    "diagnostics" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/VideoMetadataReader.dia",
+    "object" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/VideoMetadataReader.o",
+    "swift-dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/VideoMetadataReader.swiftdeps"
+  },
+  "/Users/yogesh/my-projects/Photo-manager-ssd/DriveLens/Scanning/MediaScanner.swift" : {
+    "const-values" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/MediaScanner.swiftconstvalues",
+    "dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/MediaScanner.d",
+    "diagnostics" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/MediaScanner.dia",
+    "object" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/MediaScanner.o",
+    "swift-dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/MediaScanner.swiftdeps"
+  },
+  "/Users/yogesh/my-projects/Photo-manager-ssd/DriveLens/Thumbnails/ThumbnailGenerator.swift" : {
+    "const-values" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/ThumbnailGenerator.swiftconstvalues",
+    "dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/ThumbnailGenerator.d",
+    "diagnostics" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/ThumbnailGenerator.dia",
+    "object" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/ThumbnailGenerator.o",
+    "swift-dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/ThumbnailGenerator.swiftdeps"
+  },
+  "/Users/yogesh/my-projects/Photo-manager-ssd/DriveLens/Views/RootView.swift" : {
+    "const-values" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/RootView.swiftconstvalues",
+    "dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/RootView.d",
+    "diagnostics" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/RootView.dia",
+    "object" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/RootView.o",
+    "swift-dependencies" : "/Users/yogesh/my-projects/Photo-manager-ssd/.derivedData/Build/Intermediates.noindex/DriveLens.build/Debug/DriveLens.build/Objects-normal/arm64/RootView.swiftdeps"
+  }
+}

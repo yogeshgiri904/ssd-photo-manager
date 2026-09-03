@@ -1,0 +1,412 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		000000000000000000000101 /* App/DriveLensApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000201 /* App/DriveLensApp.swift */; };
+		000000000000000000000102 /* App/AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000202 /* App/AppState.swift */; };
+		000000000000000000000103 /* Models/MediaItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000203 /* Models/MediaItem.swift */; };
+		000000000000000000000104 /* Models/NavigationDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000204 /* Models/NavigationDestination.swift */; };
+		000000000000000000000105 /* Storage/CataloguePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000205 /* Storage/CataloguePaths.swift */; };
+		000000000000000000000106 /* Storage/BookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000206 /* Storage/BookmarkStore.swift */; };
+		000000000000000000000107 /* Storage/CatalogueDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000207 /* Storage/CatalogueDatabase.swift */; };
+		000000000000000000000108 /* Metadata/FilenameDateParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000208 /* Metadata/FilenameDateParser.swift */; };
+		000000000000000000000109 /* Metadata/MediaMetadataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000209 /* Metadata/MediaMetadataReader.swift */; };
+		00000000000000000000010A /* Metadata/PhotoMetadataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000020A /* Metadata/PhotoMetadataReader.swift */; };
+		00000000000000000000010B /* Metadata/VideoMetadataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000020B /* Metadata/VideoMetadataReader.swift */; };
+		00000000000000000000010C /* Thumbnails/ThumbnailGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000020C /* Thumbnails/ThumbnailGenerator.swift */; };
+		00000000000000000000010D /* Scanning/MediaScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000020D /* Scanning/MediaScanner.swift */; };
+		00000000000000000000010E /* Views/RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000020E /* Views/RootView.swift */; };
+		00000000000000000000010F /* Views/Onboarding/OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000020F /* Views/Onboarding/OnboardingView.swift */; };
+		000000000000000000000110 /* Views/Timeline/TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000210 /* Views/Timeline/TimelineView.swift */; };
+		000000000000000000000111 /* Views/Places/PlacesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000211 /* Views/Places/PlacesView.swift */; };
+		000000000000000000000112 /* Views/Folders/FoldersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000212 /* Views/Folders/FoldersView.swift */; };
+		000000000000000000000113 /* Views/Search/SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000213 /* Views/Search/SearchView.swift */; };
+		000000000000000000000114 /* Views/Viewer/MediaViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000214 /* Views/Viewer/MediaViewer.swift */; };
+		000000000000000000000115 /* Views/Inspector/MetadataInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000215 /* Views/Inspector/MetadataInspectorView.swift */; };
+		000000000000000000000116 /* Views/Components/AsyncThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000216 /* Views/Components/AsyncThumbnailView.swift */; };
+		000000000000000000000117 /* Views/Components/ScanProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000217 /* Views/Components/ScanProgressView.swift */; };
+		000000000000000000000118 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000218 /* libsqlite3.tbd */; };
+		000000000000000000000119 /* Views/Components/DriveLensLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000021B /* Views/Components/DriveLensLogoView.swift */; };
+		00000000000000000000011A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000021C /* Assets.xcassets */; };
+		00000000000000000000011B /* Views/Duplicates/DuplicatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000021D /* Views/Duplicates/DuplicatesView.swift */; };
+		00000000000000000000011C /* Storage/AppStorageInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000021E /* Storage/AppStorageInspector.swift */; };
+		00000000000000000000011D /* Views/AppInfo/AppInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000021F /* Views/AppInfo/AppInfoView.swift */; };
+		00000000000000000000011E /* Views/SmartAlbums/SmartAlbumsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000220 /* Views/SmartAlbums/SmartAlbumsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		000000000000000000000001 /* DriveLens.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DriveLens.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000201 /* App/DriveLensApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DriveLensApp.swift; sourceTree = "<group>"; };
+		000000000000000000000202 /* App/AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppState.swift; sourceTree = "<group>"; };
+		000000000000000000000203 /* Models/MediaItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/MediaItem.swift; sourceTree = "<group>"; };
+		000000000000000000000204 /* Models/NavigationDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/NavigationDestination.swift; sourceTree = "<group>"; };
+		000000000000000000000205 /* Storage/CataloguePaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage/CataloguePaths.swift; sourceTree = "<group>"; };
+		000000000000000000000206 /* Storage/BookmarkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage/BookmarkStore.swift; sourceTree = "<group>"; };
+		000000000000000000000207 /* Storage/CatalogueDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage/CatalogueDatabase.swift; sourceTree = "<group>"; };
+		000000000000000000000208 /* Metadata/FilenameDateParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Metadata/FilenameDateParser.swift; sourceTree = "<group>"; };
+		000000000000000000000209 /* Metadata/MediaMetadataReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Metadata/MediaMetadataReader.swift; sourceTree = "<group>"; };
+		00000000000000000000020A /* Metadata/PhotoMetadataReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Metadata/PhotoMetadataReader.swift; sourceTree = "<group>"; };
+		00000000000000000000020B /* Metadata/VideoMetadataReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Metadata/VideoMetadataReader.swift; sourceTree = "<group>"; };
+		00000000000000000000020C /* Thumbnails/ThumbnailGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Thumbnails/ThumbnailGenerator.swift; sourceTree = "<group>"; };
+		00000000000000000000020D /* Scanning/MediaScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scanning/MediaScanner.swift; sourceTree = "<group>"; };
+		00000000000000000000020E /* Views/RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/RootView.swift; sourceTree = "<group>"; };
+		00000000000000000000020F /* Views/Onboarding/OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Onboarding/OnboardingView.swift; sourceTree = "<group>"; };
+		000000000000000000000210 /* Views/Timeline/TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Timeline/TimelineView.swift; sourceTree = "<group>"; };
+		000000000000000000000211 /* Views/Places/PlacesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Places/PlacesView.swift; sourceTree = "<group>"; };
+		000000000000000000000212 /* Views/Folders/FoldersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Folders/FoldersView.swift; sourceTree = "<group>"; };
+		000000000000000000000213 /* Views/Search/SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Search/SearchView.swift; sourceTree = "<group>"; };
+		000000000000000000000214 /* Views/Viewer/MediaViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Viewer/MediaViewer.swift; sourceTree = "<group>"; };
+		000000000000000000000215 /* Views/Inspector/MetadataInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Inspector/MetadataInspectorView.swift; sourceTree = "<group>"; };
+		000000000000000000000216 /* Views/Components/AsyncThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Components/AsyncThumbnailView.swift; sourceTree = "<group>"; };
+		000000000000000000000217 /* Views/Components/ScanProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Components/ScanProgressView.swift; sourceTree = "<group>"; };
+		000000000000000000000218 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		000000000000000000000219 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		00000000000000000000021A /* DriveLens.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DriveLens.entitlements; sourceTree = "<group>"; };
+		00000000000000000000021B /* Views/Components/DriveLensLogoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Components/DriveLensLogoView.swift; sourceTree = "<group>"; };
+		00000000000000000000021C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		00000000000000000000021D /* Views/Duplicates/DuplicatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Duplicates/DuplicatesView.swift; sourceTree = "<group>"; };
+		00000000000000000000021E /* Storage/AppStorageInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage/AppStorageInspector.swift; sourceTree = "<group>"; };
+		00000000000000000000021F /* Views/AppInfo/AppInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AppInfo/AppInfoView.swift; sourceTree = "<group>"; };
+		000000000000000000000220 /* Views/SmartAlbums/SmartAlbumsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SmartAlbums/SmartAlbumsView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		000000000000000000000301 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000118 /* libsqlite3.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		000000000000000000000401 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000402 /* DriveLens */,
+				000000000000000000000403 /* Frameworks */,
+				000000000000000000000404 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		000000000000000000000402 /* DriveLens */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000201 /* App/DriveLensApp.swift */,
+				000000000000000000000202 /* App/AppState.swift */,
+				000000000000000000000203 /* Models/MediaItem.swift */,
+				000000000000000000000204 /* Models/NavigationDestination.swift */,
+				000000000000000000000205 /* Storage/CataloguePaths.swift */,
+				000000000000000000000206 /* Storage/BookmarkStore.swift */,
+				000000000000000000000207 /* Storage/CatalogueDatabase.swift */,
+				00000000000000000000021E /* Storage/AppStorageInspector.swift */,
+				000000000000000000000208 /* Metadata/FilenameDateParser.swift */,
+				000000000000000000000209 /* Metadata/MediaMetadataReader.swift */,
+				00000000000000000000020A /* Metadata/PhotoMetadataReader.swift */,
+				00000000000000000000020B /* Metadata/VideoMetadataReader.swift */,
+				00000000000000000000020C /* Thumbnails/ThumbnailGenerator.swift */,
+				00000000000000000000020D /* Scanning/MediaScanner.swift */,
+				00000000000000000000020E /* Views/RootView.swift */,
+				00000000000000000000020F /* Views/Onboarding/OnboardingView.swift */,
+				000000000000000000000210 /* Views/Timeline/TimelineView.swift */,
+				000000000000000000000211 /* Views/Places/PlacesView.swift */,
+				000000000000000000000212 /* Views/Folders/FoldersView.swift */,
+				000000000000000000000213 /* Views/Search/SearchView.swift */,
+				000000000000000000000214 /* Views/Viewer/MediaViewer.swift */,
+				000000000000000000000215 /* Views/Inspector/MetadataInspectorView.swift */,
+				000000000000000000000216 /* Views/Components/AsyncThumbnailView.swift */,
+				000000000000000000000217 /* Views/Components/ScanProgressView.swift */,
+				00000000000000000000021B /* Views/Components/DriveLensLogoView.swift */,
+				00000000000000000000021D /* Views/Duplicates/DuplicatesView.swift */,
+				00000000000000000000021F /* Views/AppInfo/AppInfoView.swift */,
+				000000000000000000000220 /* Views/SmartAlbums/SmartAlbumsView.swift */,
+				00000000000000000000021C /* Assets.xcassets */,
+				000000000000000000000219 /* Info.plist */,
+				00000000000000000000021A /* DriveLens.entitlements */,
+			);
+			path = DriveLens;
+			sourceTree = "<group>";
+		};
+		000000000000000000000403 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000218 /* libsqlite3.tbd */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		000000000000000000000404 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000001 /* DriveLens.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		000000000000000000000501 /* DriveLens */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000701 /* Build configuration list for PBXNativeTarget "DriveLens" */;
+			buildPhases = (
+				000000000000000000000601 /* Sources */,
+				000000000000000000000301 /* Frameworks */,
+				000000000000000000000602 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DriveLens;
+			productName = DriveLens;
+			productReference = 000000000000000000000001 /* DriveLens.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		000000000000000000000502 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					000000000000000000000501 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = 000000000000000000000700 /* Build configuration list for PBXProject "DriveLens" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 000000000000000000000401;
+			productRefGroup = 000000000000000000000404 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				000000000000000000000501 /* DriveLens */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		000000000000000000000602 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00000000000000000000011A /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		000000000000000000000601 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000101 /* App/DriveLensApp.swift in Sources */,
+				000000000000000000000102 /* App/AppState.swift in Sources */,
+				000000000000000000000103 /* Models/MediaItem.swift in Sources */,
+				000000000000000000000104 /* Models/NavigationDestination.swift in Sources */,
+				000000000000000000000105 /* Storage/CataloguePaths.swift in Sources */,
+				000000000000000000000106 /* Storage/BookmarkStore.swift in Sources */,
+				000000000000000000000107 /* Storage/CatalogueDatabase.swift in Sources */,
+				000000000000000000000108 /* Metadata/FilenameDateParser.swift in Sources */,
+				000000000000000000000109 /* Metadata/MediaMetadataReader.swift in Sources */,
+				00000000000000000000010A /* Metadata/PhotoMetadataReader.swift in Sources */,
+				00000000000000000000010B /* Metadata/VideoMetadataReader.swift in Sources */,
+				00000000000000000000010C /* Thumbnails/ThumbnailGenerator.swift in Sources */,
+				00000000000000000000010D /* Scanning/MediaScanner.swift in Sources */,
+				00000000000000000000010E /* Views/RootView.swift in Sources */,
+				00000000000000000000010F /* Views/Onboarding/OnboardingView.swift in Sources */,
+				000000000000000000000110 /* Views/Timeline/TimelineView.swift in Sources */,
+				000000000000000000000111 /* Views/Places/PlacesView.swift in Sources */,
+				000000000000000000000112 /* Views/Folders/FoldersView.swift in Sources */,
+				000000000000000000000113 /* Views/Search/SearchView.swift in Sources */,
+				000000000000000000000114 /* Views/Viewer/MediaViewer.swift in Sources */,
+				000000000000000000000115 /* Views/Inspector/MetadataInspectorView.swift in Sources */,
+				000000000000000000000116 /* Views/Components/AsyncThumbnailView.swift in Sources */,
+				000000000000000000000117 /* Views/Components/ScanProgressView.swift in Sources */,
+				000000000000000000000119 /* Views/Components/DriveLensLogoView.swift in Sources */,
+				00000000000000000000011B /* Views/Duplicates/DuplicatesView.swift in Sources */,
+				00000000000000000000011C /* Storage/AppStorageInspector.swift in Sources */,
+				00000000000000000000011D /* Views/AppInfo/AppInfoView.swift in Sources */,
+				00000000000000000000011E /* Views/SmartAlbums/SmartAlbumsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		000000000000000000000801 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		000000000000000000000802 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		000000000000000000000803 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = DriveLens/DriveLens.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DriveLens/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.local.DriveLens;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		000000000000000000000804 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = DriveLens/DriveLens.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DriveLens/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.local.DriveLens;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		000000000000000000000700 /* Build configuration list for PBXProject "DriveLens" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000801 /* Debug */,
+				000000000000000000000802 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000701 /* Build configuration list for PBXNativeTarget "DriveLens" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000803 /* Debug */,
+				000000000000000000000804 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 000000000000000000000502 /* Project object */;
+}
