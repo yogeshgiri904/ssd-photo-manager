@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var step = 0
 
     private let pages = [
@@ -17,7 +18,7 @@ struct OnboardingView: View {
         ),
         OnboardingPage(
             title: "Choose folders to catalogue",
-            message: "Select one or more folders. DriveLens stores generated catalogue data in .drivelens at the storage root, and you can rename it later in App Info.",
+            message: "Select one or more folders. DriveLens stores catalogue data in `.drivelens` at the storage root. Original photos and videos are not changed.",
             image: "folder.badge.plus"
         )
     ]
@@ -30,6 +31,14 @@ struct OnboardingView: View {
                 DriveLensLogoView(size: 92, showsSubtleBackground: true)
 
                 VStack(spacing: 10) {
+                    Image(systemName: pages[step].image)
+                        .font(.system(size: 25, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .symbolRenderingMode(.hierarchical)
+                        .frame(width: 52, height: 52)
+                        .background(Color.accentColor.opacity(0.11), in: RoundedRectangle(cornerRadius: 13))
+                        .accessibilityHidden(true)
+
                     Text(pages[step].title)
                         .font(.system(size: 32, weight: .semibold))
                         .multilineTextAlignment(.center)
@@ -68,7 +77,7 @@ struct OnboardingView: View {
     private var footer: some View {
         HStack {
             Button {
-                step = max(0, step - 1)
+                changeStep(to: max(0, step - 1))
             } label: {
                 Label("Back", systemImage: "chevron.left")
             }
@@ -78,7 +87,7 @@ struct OnboardingView: View {
 
             if step < pages.count - 1 {
                 Button {
-                    step += 1
+                    changeStep(to: step + 1)
                 } label: {
                     Label("Continue", systemImage: "chevron.right")
                 }
@@ -99,6 +108,16 @@ struct OnboardingView: View {
         CatalogueChooserPanel(catalogues: appState.savedCatalogues)
             .environmentObject(appState)
             .frame(maxWidth: 700)
+    }
+
+    private func changeStep(to newStep: Int) {
+        if reduceMotion {
+            step = newStep
+        } else {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                step = newStep
+            }
+        }
     }
 }
 
@@ -166,7 +185,7 @@ private struct CatalogueChooserHeader: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Create From Folders")
                         .font(.headline)
-                    Text("Pick one or more folders. Originals stay in place; DriveLens stores metadata, thumbnails, and indexes in .drivelens at the storage root.")
+                    Text("Pick one or more folders. Original photos and videos are not changed. DriveLens stores catalogue data in `.drivelens` at the storage root.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -176,7 +195,7 @@ private struct CatalogueChooserHeader: View {
             HStack(spacing: 8) {
                 CatalogueSetupBadge(title: "Originals unchanged", systemImage: "checkmark.shield")
                 CatalogueSetupBadge(title: "Local catalogue", systemImage: "lock.shield")
-                CatalogueSetupBadge(title: ".drivelens storage", systemImage: "folder")
+                CatalogueSetupBadge(title: "Storage-root catalogue", systemImage: "folder")
             }
         }
     }
@@ -266,8 +285,8 @@ private struct SavedCatalogueRow: View {
                     .truncationMode(.middle)
 
                 Text("Last opened \(relativeDate)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -285,7 +304,7 @@ private struct SavedCatalogueRow: View {
                     Button {
                         appState.forgetSavedCatalogue(catalogue)
                     } label: {
-                        Label("Forget Saved Pointer", systemImage: "xmark.circle")
+                        Label("Remove from Saved Catalogues", systemImage: "xmark.circle")
                     }
                 }
             } label: {
@@ -311,7 +330,7 @@ private struct SavedCatalogueRow: View {
             Task { await appState.openSavedCatalogue(catalogue) }
         }
         .onHover { isHovering = $0 }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder
@@ -474,6 +493,7 @@ private struct CatalogueStatusBadge: View {
 }
 
 private struct StepIndicator: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let count: Int
     let selectedIndex: Int
 
@@ -483,10 +503,11 @@ private struct StepIndicator: View {
                 Capsule()
                     .fill(index == selectedIndex ? Color.accentColor : Color.secondary.opacity(0.24))
                     .frame(width: index == selectedIndex ? 24 : 7, height: 7)
-                    .animation(.snappy(duration: 0.2), value: selectedIndex)
+                    .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: selectedIndex)
             }
         }
         .accessibilityLabel("Step \(selectedIndex + 1) of \(count)")
+        .accessibilityValue("\(count) steps")
     }
 }
 

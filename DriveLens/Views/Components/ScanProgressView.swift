@@ -27,6 +27,8 @@ struct ScanProgressView: View {
 
             ProgressView(value: Double(progress.filesScanned), total: Double(max(progress.totalFilesDiscovered, 1)))
                 .progressViewStyle(.linear)
+                .accessibilityLabel("Catalogue update progress")
+                .accessibilityValue(progressText)
 
             Text(progress.currentFilename.isEmpty ? "Preparing catalogue update..." : progress.currentFilename)
                 .font(.caption)
@@ -45,7 +47,7 @@ struct ScanProgressView: View {
                 metric("Photos", "\(progress.photosFound)")
                 metric("Videos", "\(progress.videosFound)")
                 metric("Unsupported", "\(progress.unsupportedFiles)")
-                metric("Errors", "\(progress.errors)")
+                metric("Errors", "\(progress.errors)", isWarning: progress.errors > 0)
                 metric("Elapsed", format(progress.elapsedTime))
                 if let remaining = progress.estimatedRemainingTime {
                     metric("Remaining", format(remaining))
@@ -55,7 +57,7 @@ struct ScanProgressView: View {
         }
         .padding(16)
         .frame(width: 380)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
@@ -64,13 +66,16 @@ struct ScanProgressView: View {
         .accessibilityElement(children: .contain)
     }
 
-    private func metric(_ label: String, _ value: String) -> some View {
+    private func metric(_ label: String, _ value: String, isWarning: Bool = false) -> some View {
         GridRow {
             Text(label)
                 .foregroundStyle(.secondary)
             Text(value)
                 .monospacedDigit()
+                .foregroundStyle(isWarning ? Color.red : Color.primary)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label), \(value)")
     }
 
     private func format(_ interval: TimeInterval) -> String {

@@ -23,7 +23,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         case .recentlyAdded: "Recently Added"
         case .smartAlbums: "Smart Albums"
         case .duplicates: "Duplicates"
-        case .appInfo: "App Info"
+        case .appInfo: "Storage & Privacy"
         }
     }
 

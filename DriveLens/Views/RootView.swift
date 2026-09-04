@@ -21,6 +21,13 @@ struct RootView: View {
                 .padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
+
+            if let actionNotice = appState.actionNotice {
+                ActionNotice(message: actionNotice)
+                    .padding(18)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .allowsHitTesting(false)
+            }
         }
         .frame(minWidth: 1060, minHeight: 680)
         .alert("DriveLens", isPresented: Binding(
@@ -83,7 +90,7 @@ struct RootView: View {
                 appState.pendingDeleteItem = nil
             }
         } message: { item in
-            Text("This moves \(item.filename) to the macOS Trash and removes its record from the DriveLens catalogue.")
+            Text("This moves the original file \(item.filename) to Trash and removes its catalogue record.")
         }
         .confirmationDialog(
             batchDeleteDialogTitle,
@@ -110,13 +117,9 @@ struct RootView: View {
                 Divider()
 
                 List(selection: sidebarSelection) {
-                    ForEach(SidebarSection.allCases) { section in
-                        SidebarRow(
-                            section: section,
-                            count: appState.sidebarCount(for: section)
-                        )
-                        .tag(section)
-                    }
+                    SidebarNavigationSection("Library", sections: [.timeline, .places, .folders, .search])
+                    SidebarNavigationSection("Collections", sections: [.videos, .recentlyAdded, .smartAlbums, .duplicates])
+                    SidebarNavigationSection("DriveLens", sections: [.appInfo])
                 }
                 .listStyle(.sidebar)
                 .navigationTitle("DriveLens")
@@ -127,7 +130,7 @@ struct RootView: View {
                     appState.requestMediaFolderReset()
                 }
             }
-            .navigationSplitViewColumnWidth(min: 190, ideal: 210)
+            .navigationSplitViewColumnWidth(min: 210, ideal: 228)
         } detail: {
             ZStack {
                 switch appState.selectedSection {
@@ -171,7 +174,9 @@ struct RootView: View {
                 }
 
                 if appState.ssdStatus.needsAttention {
-                    StatusBanner(status: appState.ssdStatus)
+                    StatusBanner(status: appState.ssdStatus) {
+                        appState.requestMediaFolderReset()
+                    }
                         .padding(.top, 12)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
@@ -218,6 +223,14 @@ struct RootView: View {
                     .accessibilityLabel("Catalogue actions")
 
                     if appState.selectedSection != .appInfo {
+                        if appState.hasSelectedOrCurrentMediaItems {
+                            MediaFavoriteButton(items: appState.selectedOrCurrentVisibleItems())
+                                .labelStyle(.iconOnly)
+
+                            AddToAlbumMenu(items: appState.selectedOrCurrentVisibleItems())
+                                .labelStyle(.iconOnly)
+                        }
+
                         Button {
                             appState.showingInspector.toggle()
                         } label: {
@@ -229,25 +242,20 @@ struct RootView: View {
                     }
                 }
 
-                ToolbarItem(placement: .primaryAction) {
-                    TextField("Search", text: $appState.searchText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 240)
-                        .accessibilityLabel("Search catalogue")
-                        .onSubmit {
-                            appState.select(.search)
-                            appState.refreshSearchResultCount()
-                        }
-                        .onChange(of: appState.searchText) { _, newValue in
-                            if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                appState.select(.search)
-                            }
-                            appState.refreshSearchResultCount()
-                        }
-                }
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .searchable(text: $appState.searchText, placement: .toolbar, prompt: "Search Catalogue")
+        .onSubmit(of: .search) {
+            appState.select(.search)
+            appState.refreshSearchResultCount()
+        }
+        .onChange(of: appState.searchText) { _, newValue in
+            if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                appState.select(.search)
+            }
+            appState.refreshSearchResultCount()
+        }
     }
 
     private var sidebarSelection: Binding<SidebarSection?> {
@@ -313,6 +321,26 @@ struct RootView: View {
         )
     }
 
+}
+
+private struct ActionNotice: View {
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: "checkmark.circle.fill")
+            .font(.callout.weight(.medium))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 9))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9)
+                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.16), radius: 14, y: 6)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(message)
+    }
 }
 
 private struct BatchRenameSheet: View {
@@ -612,7 +640,7 @@ private struct MissingFolderRepairRow: View {
                 }
 
                 Text(candidate.subtitle)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -666,8 +694,8 @@ private struct SidebarFooter: View {
                 .padding(.top, 2)
 
                 Text(detailPath)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .truncationMode(.middle)
 
@@ -728,28 +756,75 @@ private struct StatusBadge: View {
 
 private struct StatusBanner: View {
     let status: SSDStatus
+    let action: () -> Void
 
     var body: some View {
-        Label(message, systemImage: status.systemImage)
-            .font(.callout.weight(.medium))
+        HStack(spacing: 12) {
+            Label(message, systemImage: status.systemImage)
+                .font(.callout.weight(.medium))
+
+            Divider()
+                .frame(height: 18)
+
+            Button(actionTitle, action: action)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-            .shadow(radius: 8, y: 2)
+            .padding(.vertical, 9)
+            .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.orange.opacity(0.28), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+            .accessibilityElement(children: .contain)
     }
 
     private var message: String {
         switch status {
         case .disconnected:
-            return "Connect the storage device to continue viewing originals."
+            return "Connect the storage device to continue."
         case .permissionLost:
             return "DriveLens needs folder permission again. Choose the media folder to continue."
         case .catalogueCorrupted:
-            return "The catalogue could not be read. Original photos and videos were not changed."
+            return "The catalogue could not be read. Original photos and videos are not changed."
         case .notSelected:
             return "Choose folders to create or open a catalogue."
         case .connected:
             return "Storage connected."
+        }
+    }
+
+    private var actionTitle: String {
+        switch status {
+        case .permissionLost:
+            return "Choose Folder"
+        case .disconnected, .catalogueCorrupted, .notSelected, .connected:
+            return "Choose Catalogue"
+        }
+    }
+}
+
+private struct SidebarNavigationSection: View {
+    @EnvironmentObject private var appState: AppState
+    let title: String
+    let sections: [SidebarSection]
+
+    init(_ title: String, sections: [SidebarSection]) {
+        self.title = title
+        self.sections = sections
+    }
+
+    var body: some View {
+        Section(title) {
+            ForEach(sections) { section in
+                SidebarRow(
+                    section: section,
+                    count: appState.sidebarCount(for: section)
+                )
+                .tag(section)
+            }
         }
     }
 }
@@ -771,6 +846,7 @@ private struct SidebarRow: View {
         .labelStyle(.titleAndIcon)
         .padding(.vertical, 3)
         .accessibilityLabel(section.title)
+        .accessibilityValue(count.map { "\($0) items" } ?? "")
     }
 
     @ViewBuilder

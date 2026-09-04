@@ -806,6 +806,51 @@ final class CatalogueDatabase {
         return albums
     }
 
+    func createCustomAlbum(named rawName: String) throws -> CustomAlbum? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+
+        let now = isoFormatter.string(from: Date())
+        try upsertCustomAlbum(name: name, timestamp: now)
+        return try fetchCustomAlbums().first {
+            $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+        }
+    }
+
+    func renameCustomAlbum(id: Int64, to rawName: String) throws -> CustomAlbum? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+
+        let sql = "UPDATE custom_albums SET name = ?, updated_at = ? WHERE id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw CatalogueDatabaseError.prepareFailed(message: lastError)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        bind(statement, 1, name)
+        bind(statement, 2, isoFormatter.string(from: Date()))
+        sqlite3_bind_int64(statement, 3, id)
+
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw CatalogueDatabaseError.writeFailed(message: lastError)
+        }
+        return try fetchCustomAlbums().first { $0.id == id }
+    }
+
+    func deleteCustomAlbum(id: Int64) throws {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "DELETE FROM custom_albums WHERE id = ?;", -1, &statement, nil) == SQLITE_OK else {
+            throw CatalogueDatabaseError.prepareFailed(message: lastError)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_int64(statement, 1, id)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw CatalogueDatabaseError.writeFailed(message: lastError)
+        }
+    }
+
     func addKeyword(_ keyword: String, to itemIDs: [Int64]) throws {
         let normalizedKeyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedKeyword.isEmpty, !itemIDs.isEmpty else { return }
@@ -878,21 +923,32 @@ final class CatalogueDatabase {
         }
     }
 
-    func addItems(_ itemIDs: [Int64], toCustomAlbumNamed rawName: String) throws -> CustomAlbum? {
+    func addItems(
+        _ itemIDs: [Int64],
+        toCustomAlbumNamed rawName: String
+    ) throws -> (album: CustomAlbum, addedCount: Int)? {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !itemIDs.isEmpty else { return nil }
         let now = isoFormatter.string(from: Date())
+        var addedCount = 0
 
         try transaction {
             try upsertCustomAlbum(name: name, timestamp: now)
             let albumID = try customAlbumID(named: name)
             for id in itemIDs {
-                try insertCustomAlbumItem(albumID: albumID, mediaItemID: id, timestamp: now)
+                if try insertCustomAlbumItem(albumID: albumID, mediaItemID: id, timestamp: now) {
+                    addedCount += 1
+                }
             }
             try touchCustomAlbum(id: albumID, timestamp: now)
         }
 
-        return try fetchCustomAlbums().first { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }
+        guard let album = try fetchCustomAlbums().first(where: {
+            $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+        }) else {
+            return nil
+        }
+        return (album, addedCount)
     }
 
     func countMedia(searchText: String, filters: SearchFilters) throws -> Int {
@@ -1524,8 +1580,8 @@ final class CatalogueDatabase {
             return SmartAlbum(
                 id: kind.id,
                 title: album.name,
-                subtitle: "Custom album",
-                systemImage: "rectangle.stack.badge.plus",
+                subtitle: album.itemCount == 0 ? "Add selected items from the Inspector" : "Album you created",
+                systemImage: "rectangle.stack",
                 kind: kind,
                 itemCount: album.itemCount,
                 sortPriority: 600 + index
@@ -1627,7 +1683,7 @@ final class CatalogueDatabase {
         return sqlite3_column_int64(statement, 0)
     }
 
-    private func insertCustomAlbumItem(albumID: Int64, mediaItemID: Int64, timestamp: String) throws {
+    private func insertCustomAlbumItem(albumID: Int64, mediaItemID: Int64, timestamp: String) throws -> Bool {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO custom_album_items (album_id, media_item_id, added_at) VALUES (?, ?, ?);", -1, &statement, nil) == SQLITE_OK else {
             throw CatalogueDatabaseError.prepareFailed(message: lastError)
@@ -1641,6 +1697,7 @@ final class CatalogueDatabase {
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw CatalogueDatabaseError.writeFailed(message: lastError)
         }
+        return sqlite3_changes(db) > 0
     }
 
     private func touchCustomAlbum(id: Int64, timestamp: String) throws {

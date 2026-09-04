@@ -34,7 +34,7 @@ struct AppInfoView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(Color(nsColor: .textBackgroundColor))
-        .navigationTitle("App Info")
+        .navigationTitle("Storage & Privacy")
         .task {
             await appState.refreshAppStorageReport()
         }
@@ -80,7 +80,7 @@ struct AppInfoView: View {
             .frame(width: 420)
         }
         .confirmationDialog(
-            "Delete catalogue data?",
+            "Delete Catalogue Data?",
             isPresented: $showingDeleteCatalogueConfirmation
         ) {
             Button("Delete Catalogue Data", role: .destructive) {
@@ -151,9 +151,9 @@ struct AppInfoView: View {
                 .frame(width: 40, height: 40)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("App Info")
+                Text("Storage & Privacy")
                     .font(.system(size: 30, weight: .semibold))
-                Text("Catalogue storage, mapped folders, permissions, and maintenance.")
+                Text("Review catalogue storage, connected folders, permissions, and maintenance.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -289,7 +289,7 @@ struct AppInfoView: View {
                 ContentUnavailableView {
                     Label("No Catalogues", systemImage: "rectangle.stack.badge.questionmark")
                 } description: {
-                    Text("Choose folders to create the first catalogue. DriveLens stores catalogue data in .drivelens at the storage root.")
+                    Text("Choose folders to create your first catalogue. DriveLens stores catalogue data in `.drivelens` at the storage root.")
                 }
                 .frame(maxWidth: .infinity, minHeight: 180)
             } else {
@@ -344,11 +344,11 @@ struct AppInfoView: View {
     private var privacySection: some View {
         AppInfoSection(title: "Privacy", subtitle: "Local by design") {
             VStack(alignment: .leading, spacing: 10) {
-                Label("DriveLens stores catalogue data in .drivelens at the storage root whenever possible.", systemImage: "lock.shield")
+                Label("DriveLens stores catalogue data in `.drivelens` at the storage root.", systemImage: "lock.shield")
                     .font(.callout.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("New catalogues store metadata, thumbnails, geocoding cache, duplicate hashes, and indexes inside .drivelens at the root of the selected storage volume. This Mac keeps only small security-scoped bookmarks and catalogue pointers. Older catalogues can be moved from the Catalogues section.")
+                Text("Catalogue data includes metadata, thumbnails, the geocoding cache, duplicate hashes, and indexes. This Mac keeps only the small bookmarks and pointers required to reopen catalogues. Original photos and videos are not changed.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -538,8 +538,8 @@ private struct MappedCatalogueStorageRow: View {
 
                     if let lastScanDate = catalogue.lastScanDate {
                         Text("Last scanned \(lastScanDate.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -572,10 +572,11 @@ private struct MappedCatalogueStorageRow: View {
                 .buttonStyle(.borderless)
                 .controlSize(.small)
                 .help("Catalogue Actions")
+                .accessibilityLabel("Actions for \(catalogue.name)")
             }
 
             LazyVGrid(columns: metricColumns, alignment: .leading, spacing: 8) {
-                MiniMetric(title: "Data", value: ByteCountFormatter.string(fromByteCount: catalogue.totalBytes, countStyle: .file))
+                MiniMetric(title: "Catalogue Data", value: ByteCountFormatter.string(fromByteCount: catalogue.totalBytes, countStyle: .file))
                 MiniMetric(title: "Items", value: catalogue.itemCount?.formatted(.number) ?? "Unknown")
                 MiniMetric(title: "Cache", value: ByteCountFormatter.string(fromByteCount: catalogue.cacheBytes, countStyle: .file))
                 MiniMetric(title: "Location", value: catalogue.isStoredOnMac ? "Mac" : "Root")
@@ -589,7 +590,7 @@ private struct MappedCatalogueStorageRow: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(catalogue.isActive ? Color.accentColor.opacity(0.22) : Color.primary.opacity(0.08), lineWidth: 1)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     private var metricColumns: [GridItem] {

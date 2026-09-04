@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AsyncThumbnailView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: MediaItem
     private let showsBadge: Bool
     private let showsHoverOverlay: Bool
@@ -71,16 +72,20 @@ struct AsyncThumbnailView: View {
                         .padding(3)
                 }
             }
-            .animation(.easeOut(duration: 0.12), value: isHovered)
-            .animation(.easeOut(duration: 0.12), value: isPrimarySelected)
-            .animation(.easeOut(duration: 0.12), value: isBatchSelected)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isPrimarySelected)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isBatchSelected)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .accessibilityAddTraits(showsSelection && (isPrimarySelected || isBatchSelected) ? .isSelected : [])
         }
         .aspectRatio(1, contentMode: .fit)
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.12)) {
+            if reduceMotion {
                 isHovered = hovering
+            } else {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    isHovered = hovering
+                }
             }
         }
         .task(id: item.relativePath) {
@@ -88,7 +93,13 @@ struct AsyncThumbnailView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
-        .accessibilityHint("Double-click to open the viewer")
+        .accessibilityHint("Select the item or use the Open in Viewer action")
+        .accessibilityAction {
+            appState.selectSingleMediaItem(item)
+        }
+        .accessibilityAction(named: Text("Open in Viewer")) {
+            appState.viewInViewer(item)
+        }
     }
 
     private var borderColor: Color {
@@ -167,7 +178,7 @@ struct AsyncThumbnailView: View {
             HStack(alignment: .top, spacing: 6) {
                 if item.isMissing {
                     statusBadge(title: "Missing", systemImage: "exclamationmark.triangle.fill")
-                } else if item.isFavorite {
+                } else if appState.favoriteState(for: item) {
                     Image(systemName: "heart.fill")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white)
@@ -241,7 +252,10 @@ struct AsyncThumbnailView: View {
     }
 
     private var accessibilityText: String {
-        [item.filename, item.kind.label, item.captureDateLocalText].joined(separator: ", ")
+        var parts = [item.filename, item.kind.label, item.captureDateLocalText]
+        if appState.favoriteState(for: item) { parts.append("Favorite") }
+        if item.isMissing { parts.append("Original file missing") }
+        return parts.joined(separator: ", ")
     }
 
     private func loadThumbnail() async {
@@ -253,15 +267,16 @@ struct AsyncThumbnailView: View {
             return
         }
 
-        guard let loaded = NSImage(contentsOf: url) else { return }
+        let data = await Task.detached(priority: .userInitiated) {
+            try? Data(contentsOf: url, options: [.mappedIfSafe, .uncached])
+        }.value
+        guard !Task.isCancelled, let data, let loaded = NSImage(data: data) else { return }
         cache.insert(loaded, for: url)
-        await MainActor.run {
-            image = loaded
-        }
+        image = loaded
     }
 }
 
-private final class ThumbnailMemoryCache {
+final class ThumbnailMemoryCache {
     static let shared = ThumbnailMemoryCache()
 
     private let cache = NSCache<NSURL, NSImage>()
@@ -278,5 +293,9 @@ private final class ThumbnailMemoryCache {
     func insert(_ image: NSImage, for url: URL) {
         let pixels = max(1, Int(image.size.width * image.size.height))
         cache.setObject(image, forKey: url as NSURL, cost: pixels * 4)
+    }
+
+    func removeAll() {
+        cache.removeAllObjects()
     }
 }

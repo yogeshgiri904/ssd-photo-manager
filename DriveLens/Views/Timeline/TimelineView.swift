@@ -10,6 +10,7 @@ enum TimelineControlScope {
 
 struct TimelineView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isGridFocused: Bool
     let items: [MediaItem]
     var title = "Timeline"
@@ -122,6 +123,15 @@ struct TimelineView: View {
 
                                                         Divider()
 
+                                                        MediaFavoriteButton(items: batchItems(for: item))
+
+                                                        AddToAlbumMenu(
+                                                            items: batchItems(for: item),
+                                                            allowsCreatingAlbum: false
+                                                        )
+
+                                                        Divider()
+
                                                         Button {
                                                             appState.copyMediaItems(batchItems(for: item))
                                                         } label: {
@@ -170,13 +180,20 @@ struct TimelineView: View {
                         .environmentObject(appState)
                         .padding(.horizontal, 18)
                         .padding(.bottom, 14)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                     }
                 }
                 .background(Color(nsColor: .textBackgroundColor))
                 .focusable()
                 .focused($isGridFocused)
                 .focusEffectDisabled()
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(isGridFocused ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 2)
+                        .padding(2)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
                 .simultaneousGesture(
                     TapGesture().onEnded {
                         isGridFocused = true
@@ -224,7 +241,7 @@ struct TimelineView: View {
         } description: {
             Text(emptyStateMessage)
         } actions: {
-            if title == "Search" {
+            if title == "Search" && hasActiveSearch {
                 Button {
                     appState.searchText = ""
                     appState.activeFilters = SearchFilters()
@@ -265,13 +282,16 @@ struct TimelineView: View {
     }
 
     private var emptyStateTitle: String {
-        if title == "Search" { return "No matching media" }
-        if title == "Videos" { return "No videos in the catalogue" }
-        return "No media in the catalogue"
+        if title == "Search" { return hasActiveSearch ? "No Results" : "Search Your Catalogue" }
+        if title == "Videos" { return "No Videos" }
+        return "No Media"
     }
 
     private var emptyStateMessage: String {
         if title == "Search" {
+            if !hasActiveSearch {
+                return "Search by filename, date, place, camera, or keyword."
+            }
             return "Try a different filename, date, place, camera, or filter combination."
         }
         if showsQuickFilters && controlScope != .none {
@@ -286,6 +306,10 @@ struct TimelineView: View {
         return "photo.on.rectangle.angled"
     }
 
+    private var hasActiveSearch: Bool {
+        !appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.activeFilters != SearchFilters()
+    }
+
     private func jumpStrip(proxy: ScrollViewProxy) -> some View {
         let years = Array(Set(items.map { Calendar.current.component(.year, from: $0.captureDate) })).sorted(by: >)
         return ScrollView(.horizontal, showsIndicators: false) {
@@ -293,7 +317,7 @@ struct TimelineView: View {
                 ForEach(years, id: \.self) { year in
                     Button(String(year)) {
                         if let item = items.first(where: { Calendar.current.component(.year, from: $0.captureDate) == year }) {
-                            withAnimation(.snappy) {
+                            withAnimation(reduceMotion ? nil : .snappy) {
                                 proxy.scrollTo(item.id, anchor: .top)
                             }
                         }
@@ -399,70 +423,124 @@ private struct BatchSelectionBar: View {
     let totalCount: Int
 
     var body: some View {
-        HStack(spacing: 10) {
-            Label(selectionText, systemImage: "checkmark.circle.fill")
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.primary)
-
-            Spacer(minLength: 12)
-
-            if selectedCount < totalCount {
-                Button {
-                    appState.selectAllVisibleItems()
-                } label: {
-                    Label("Select All", systemImage: "checklist.checked")
-                }
-                .help("Select all visible media")
-            }
-
-            Button {
-                appState.copySelectedMediaItems()
-            } label: {
-                Label("Copy Originals", systemImage: "doc.on.doc")
-            }
-            .help("Copy selected originals")
-
-            Button {
-                appState.requestRenameSelectedMediaItems()
-            } label: {
-                Label("Rename Originals", systemImage: "pencil")
-            }
-            .help("Rename selected originals")
-
-            Button(role: .destructive) {
-                appState.requestDeleteSelectedMediaItems()
-            } label: {
-                Label("Move to Trash", systemImage: "trash")
-            }
-            .help("Move selected originals to Trash")
-
-            Divider()
-                .frame(height: 22)
-
-            Button {
-                appState.clearMediaSelection()
-            } label: {
-                Label("Clear", systemImage: "xmark.circle")
-            }
-            .labelStyle(.iconOnly)
-            .help("Clear selection")
+        ViewThatFits(in: .horizontal) {
+            fullActions
+            compactActions
         }
         .buttonStyle(.bordered)
+        .menuStyle(.button)
         .controlSize(.small)
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.primary.opacity(0.10), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.16), radius: 14, y: 6)
-        .frame(maxWidth: 680)
+        .frame(maxWidth: 860)
         .accessibilityElement(children: .contain)
+        .accessibilityLabel("Selection quick actions")
     }
 
-    private var selectionText: String {
-        "\(selectedCount) selected"
+    private var fullActions: some View {
+        HStack(spacing: 10) {
+            selectionLabel
+
+            Spacer(minLength: 12)
+
+            if selectedCount < totalCount {
+                selectAllButton
+            }
+
+            MediaFavoriteButton(items: selectedItems)
+            AddToAlbumMenu(items: selectedItems)
+            copyButton
+            renameButton
+            trashButton
+
+            Divider().frame(height: 22)
+            clearButton
+        }
+    }
+
+    private var compactActions: some View {
+        HStack(spacing: 8) {
+            selectionLabel
+            Spacer(minLength: 8)
+
+            if selectedCount < totalCount {
+                selectAllButton.labelStyle(.iconOnly)
+            }
+
+            MediaFavoriteButton(items: selectedItems)
+                .labelStyle(.iconOnly)
+            AddToAlbumMenu(items: selectedItems)
+                .labelStyle(.iconOnly)
+            copyButton.labelStyle(.iconOnly)
+            renameButton.labelStyle(.iconOnly)
+            trashButton.labelStyle(.iconOnly)
+
+            Divider().frame(height: 22)
+            clearButton
+        }
+    }
+
+    private var selectedItems: [MediaItem] {
+        appState.selectedOrCurrentVisibleItems()
+    }
+
+    private var selectionLabel: some View {
+        Label("\(selectedCount) selected", systemImage: "checkmark.circle.fill")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(.primary)
+            .fixedSize()
+    }
+
+    private var selectAllButton: some View {
+        Button {
+            appState.selectAllVisibleItems()
+        } label: {
+            Label("Select All", systemImage: "checklist.checked")
+        }
+        .help("Select all visible media")
+    }
+
+    private var copyButton: some View {
+        Button {
+            appState.copySelectedMediaItems()
+        } label: {
+            Label("Copy Originals", systemImage: "doc.on.doc")
+        }
+        .help("Copy selected originals")
+    }
+
+    private var renameButton: some View {
+        Button {
+            appState.requestRenameSelectedMediaItems()
+        } label: {
+            Label("Rename Originals", systemImage: "pencil")
+        }
+        .help("Rename selected originals")
+    }
+
+    private var trashButton: some View {
+        Button(role: .destructive) {
+            appState.requestDeleteSelectedMediaItems()
+        } label: {
+            Label("Move to Trash", systemImage: "trash")
+        }
+        .help("Move selected originals to Trash")
+    }
+
+    private var clearButton: some View {
+        Button {
+            appState.clearMediaSelection()
+        } label: {
+            Label("Clear Selection", systemImage: "xmark.circle")
+        }
+        .labelStyle(.iconOnly)
+        .help("Clear selection")
     }
 }
 
@@ -527,20 +605,21 @@ private struct TimelineHeader: View {
 
     private var titleBlock: some View {
         VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    if let backAction {
-                        Button(action: backAction) {
-                            Label("Back", systemImage: "chevron.left")
-                        }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help("Back to Smart Albums")
+            HStack(spacing: 8) {
+                if let backAction {
+                    Button(action: backAction) {
+                        Label("Back", systemImage: "chevron.left")
                     }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Back to Smart Albums")
+                    .accessibilityLabel("Back to Smart Albums")
+                }
 
-                    Image(systemName: showsQuickFilters ? "rectangle.stack.fill" : "photo.stack")
-                        .foregroundStyle(Color.accentColor)
-                    Text(title)
+                Image(systemName: showsQuickFilters ? "rectangle.stack.fill" : "photo.stack")
+                    .foregroundStyle(Color.accentColor)
+                Text(title)
                     .font(.title2.weight(.semibold))
             }
 
@@ -923,7 +1002,7 @@ private struct QuickFilterPill: View {
                     .monospacedDigit()
                     .foregroundStyle(isSelected ? .white.opacity(0.82) : .secondary)
             }
-            .font(.caption2.weight(isSelected ? .semibold : .regular))
+            .font(.caption.weight(isSelected ? .semibold : .regular))
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .foregroundStyle(isSelected ? .white : .primary)
@@ -935,6 +1014,8 @@ private struct QuickFilterPill: View {
         }
         .buttonStyle(.plain)
         .help("Show \(filter.title)")
+        .accessibilityLabel("\(filter.title), \(count) items")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

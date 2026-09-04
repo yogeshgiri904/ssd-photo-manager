@@ -65,6 +65,7 @@ final class AppState: ObservableObject {
     @Published var isCompactingCatalogue = false
     @Published var searchResultCount = 0
     @Published var userMessage: String?
+    @Published var actionNotice: String?
     @Published var showingResetConfirmation = false
     @Published var showingRescanConfirmation = false
     @Published var pendingDeleteItem: MediaItem?
@@ -91,6 +92,7 @@ final class AppState: ObservableObject {
     private var isLoadingPage = false
     private var lastSelectedMediaItemID: Int64?
     private var visibleSelectionScopeItems: [MediaItem] = []
+    private var actionNoticeTask: Task<Void, Never>?
     private let pageSize = 500
 
     init() {
@@ -224,7 +226,7 @@ final class AppState: ObservableObject {
         panel.canCreateDirectories = false
         panel.directoryURL = initialDirectory
         panel.prompt = "Choose Media Folder"
-        panel.message = "Choose the folder that contains your photos and videos. Original files stay in place."
+        panel.message = "Choose the folder that contains your photos and videos. Original photos and videos are not changed."
 
         guard panel.runModal() == .OK, let url = panel.url else {
             return
@@ -247,7 +249,7 @@ final class AppState: ObservableObject {
             await loadTimeline()
             refreshSavedCatalogues()
         } catch {
-            userMessage = error.localizedDescription
+            userMessage = "The folder could not be opened. \(error.localizedDescription)"
             ssdStatus = .permissionLost
         }
     }
@@ -281,7 +283,7 @@ final class AppState: ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.canCreateDirectories = false
-        panel.message = "Choose one or more photo or video folders. DriveLens stores catalogue data in .drivelens at the storage root."
+        panel.message = "Choose one or more photo or video folders. DriveLens stores catalogue data in .drivelens at the storage root. Original photos and videos are not changed."
         panel.prompt = "Create Catalogue"
 
         guard panel.runModal() == .OK else { return }
@@ -294,7 +296,7 @@ final class AppState: ObservableObject {
 
         let catalogueName = Self.defaultCatalogueName(for: folderURLs)
         guard let storageRootURL = await storageRootForCatalogue(for: folderURLs) else {
-            userMessage = "Choose folders from a storage volume where DriveLens can create .drivelens at the root."
+            userMessage = "Choose folders on a storage device where DriveLens can create .drivelens at the root."
             return
         }
 
@@ -350,7 +352,7 @@ final class AppState: ObservableObject {
 
         let catalogueName = Self.defaultCatalogueName(for: folderURLs)
         guard let storageRootURL = await storageRootForCatalogue(for: folderURLs) else {
-            userMessage = "Choose folders from a storage volume where DriveLens can create .drivelens at the root."
+            userMessage = "Choose folders on a storage device where DriveLens can create .drivelens at the root."
             return
         }
 
@@ -434,7 +436,7 @@ final class AppState: ObservableObject {
                 await refreshAppStorageReport()
             }
 
-            userMessage = "Deleted \(catalogue.name) catalogue data. Original photos and videos were not changed."
+            userMessage = "Deleted metadata, thumbnails, indexes, caches, and the saved pointer for \(catalogue.name). Original photos and videos are not changed."
         } catch {
             if await deleteNamedCatalogueAfterChoosingCataloguesFolder(catalogue, wasActive: wasActive, originalError: error) {
                 return
@@ -520,7 +522,7 @@ final class AppState: ObservableObject {
                 await refreshAppStorageReport()
             }
 
-            userMessage = "Deleted \(catalogue.name) catalogue data. Original photos and videos were not changed."
+            userMessage = "Deleted metadata, thumbnails, indexes, caches, and the saved pointer for \(catalogue.name). Original photos and videos are not changed."
             return true
         } catch {
             if wasActive {
@@ -555,7 +557,7 @@ final class AppState: ObservableObject {
         }
 
         guard let storageRootURL = await storageRootForCatalogue(for: catalogue.sourceList.map(\.rootURL)) else {
-            userMessage = "Connect a writable imported storage device before moving catalogue storage."
+            userMessage = "Connect a writable storage device to continue."
             return
         }
 
@@ -625,7 +627,7 @@ final class AppState: ObservableObject {
             }
 
             await refreshAppStorageReport()
-            userMessage = "Moved \(catalogue.name) catalogue data to \(storageRootURL.lastPathComponent)/.drivelens. This Mac now keeps only the saved pointer."
+            userMessage = "Moved \(catalogue.name) to \(storageRootURL.lastPathComponent)/.drivelens. This Mac now keeps only the saved pointer. Original photos and videos are not changed."
         } catch {
             if wasActive {
                 try? openCatalogue(catalogue)
@@ -649,7 +651,7 @@ final class AppState: ObservableObject {
                 refreshSavedCatalogues()
             } catch {
                 ssdStatus = .permissionLost
-                userMessage = "Could not open that catalogue. Connect the storage device or add the folders again."
+                userMessage = "Connect the storage device to continue. If the folders moved, add them again."
             }
             return
         }
@@ -694,7 +696,7 @@ final class AppState: ObservableObject {
     func forgetSavedCatalogue(_ catalogue: SavedCatalogue) {
         bookmarkStore.removeSavedCatalogue(id: catalogue.id)
         refreshSavedCatalogues()
-        userMessage = "Removed the saved pointer for \(catalogue.name). Catalogue data and original photos and videos were not changed."
+        userMessage = "Removed \(catalogue.name) from Saved Catalogues. Its catalogue data and original photos and videos are not changed."
     }
 
     func buildCatalogue() async {
@@ -926,7 +928,7 @@ final class AppState: ObservableObject {
         scanTask?.cancel()
         scanTask = nil
         scanProgress = nil
-        userMessage = "Scan cancelled. You can resume with Update Catalogue."
+        userMessage = "Catalogue update cancelled. Choose Update Catalogue when you are ready to continue."
     }
 
     func resetMediaFolderSelection() {
@@ -1287,7 +1289,7 @@ final class AppState: ObservableObject {
             ssdStatus = activeMediaSources.isEmpty || activeMediaSources.contains { $0.rootURL.isReachableDirectory } ? .connected : .disconnected
         } catch {
             ssdStatus = .catalogueCorrupted
-            userMessage = "The catalogue could not be read. Original photos and videos were not changed."
+            userMessage = "The catalogue could not be read. Original photos and videos are not changed."
         }
     }
 
@@ -1823,17 +1825,60 @@ final class AppState: ObservableObject {
 
     func setFavorite(_ isFavorite: Bool, for items: [MediaItem]) async {
         let itemIDs = items.map(\.id)
-        guard let database, !itemIDs.isEmpty else { return }
+        guard !itemIDs.isEmpty else { return }
+        guard let database else {
+            userMessage = "Connect the storage device to continue."
+            return
+        }
 
         do {
             try database.setFavorite(isFavorite, for: itemIDs)
+            updateFavoriteState(isFavorite, for: Set(itemIDs))
             mediaMutationRevision += 1
-            await loadTimeline()
-            userMessage = isFavorite
-                ? "Marked \(itemIDs.count) item\(itemIDs.count == 1 ? "" : "s") as favorite."
-                : "Removed favorite from \(itemIDs.count) item\(itemIDs.count == 1 ? "" : "s")."
+            smartAlbums = try database.fetchSmartAlbums()
+            if let selectedSmartAlbumID,
+               let selectedAlbum = smartAlbums.first(where: { $0.id == selectedSmartAlbumID }),
+               case .favorites = selectedAlbum.kind {
+                try loadSmartAlbumContent(selectedAlbum, in: database)
+            }
+            showActionNotice(
+                isFavorite
+                    ? "Marked \(itemIDs.count) item\(itemIDs.count == 1 ? "" : "s") as favorite."
+                    : "Removed \(itemIDs.count) item\(itemIDs.count == 1 ? "" : "s") from Favorites."
+            )
         } catch {
             userMessage = "Could not update favorites: \(error.localizedDescription)"
+        }
+    }
+
+    func favoriteState(for item: MediaItem) -> Bool {
+        if let selectedMediaItem, selectedMediaItem.id == item.id {
+            return selectedMediaItem.isFavorite
+        }
+        if let visibleItem = visibleSelectionScopeItems.first(where: { $0.id == item.id }) {
+            return visibleItem.isFavorite
+        }
+        return item.isFavorite
+    }
+
+    private func updateFavoriteState(_ isFavorite: Bool, for itemIDs: Set<Int64>) {
+        func update(_ items: inout [MediaItem]) {
+            for index in items.indices where itemIDs.contains(items[index].id) {
+                items[index].isFavorite = isFavorite
+            }
+        }
+
+        update(&mediaItems)
+        update(&videoItems)
+        update(&recentlyAddedItems)
+        update(&placeItems)
+        update(&searchItems)
+        update(&smartAlbumItems)
+        update(&visibleSelectionScopeItems)
+
+        if var selectedMediaItem, itemIDs.contains(selectedMediaItem.id) {
+            selectedMediaItem.isFavorite = isFavorite
+            self.selectedMediaItem = selectedMediaItem
         }
     }
 
@@ -1865,23 +1910,173 @@ final class AppState: ObservableObject {
         }
     }
 
-    func addToCustomAlbum(named name: String, items: [MediaItem]) async {
+    @discardableResult
+    func addToCustomAlbum(named name: String, items: [MediaItem]) async -> Bool {
         let itemIDs = items.map(\.id)
-        guard let database, !itemIDs.isEmpty else { return }
+        guard !itemIDs.isEmpty else { return false }
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedName.isEmpty else {
+            userMessage = "Enter an album name."
+            return false
+        }
+        guard normalizedName.count <= 80 else {
+            userMessage = "Album names can contain up to 80 characters."
+            return false
+        }
+        guard let database else {
+            userMessage = "Connect the storage device to continue."
+            return false
+        }
 
         do {
-            guard let album = try database.addItems(itemIDs, toCustomAlbumNamed: name) else {
+            guard let result = try database.addItems(itemIDs, toCustomAlbumNamed: normalizedName) else {
                 userMessage = "Enter an album name."
-                return
+                return false
             }
+            let album = result.album
             customAlbums = try database.fetchCustomAlbums()
             smartAlbums = try database.fetchSmartAlbums()
             mediaMutationRevision += 1
-            await loadTimeline()
-            userMessage = "Added \(itemIDs.count) item\(itemIDs.count == 1 ? "" : "s") to \(album.name)."
+            if let selectedSmartAlbumID,
+               let selectedAlbum = smartAlbums.first(where: { $0.id == selectedSmartAlbumID }),
+               case .customAlbum = selectedAlbum.kind {
+                try loadSmartAlbumContent(selectedAlbum, in: database)
+            }
+            showActionNotice(
+                albumNotice(
+                    albumName: album.name,
+                    addedCount: result.addedCount,
+                    requestedCount: itemIDs.count
+                )
+            )
+            return true
         } catch {
             userMessage = "Could not update custom album: \(error.localizedDescription)"
+            return false
         }
+    }
+
+    @discardableResult
+    func createCustomAlbum(named rawName: String) async -> Bool {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            userMessage = "Enter an album name."
+            return false
+        }
+        guard name.count <= 80 else {
+            userMessage = "Album names can contain up to 80 characters."
+            return false
+        }
+        guard let database else {
+            userMessage = "Open a catalogue before creating an album."
+            return false
+        }
+
+        do {
+            let albums = try database.fetchCustomAlbums()
+            guard !albums.contains(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) else {
+                userMessage = "An album named “\(name)” already exists."
+                return false
+            }
+            guard let album = try database.createCustomAlbum(named: name) else {
+                userMessage = "Enter an album name."
+                return false
+            }
+            customAlbums = try database.fetchCustomAlbums()
+            smartAlbums = try database.fetchSmartAlbums()
+            userMessage = "Created “\(album.name)”. Add selected photos and videos from the Inspector."
+            return true
+        } catch {
+            userMessage = "The album could not be created. \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func renameCustomAlbum(_ album: CustomAlbum, to rawName: String) async -> Bool {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            userMessage = "Enter an album name."
+            return false
+        }
+        guard name.count <= 80 else {
+            userMessage = "Album names can contain up to 80 characters."
+            return false
+        }
+        guard let database else {
+            userMessage = "Connect the storage device to continue."
+            return false
+        }
+
+        do {
+            let albums = try database.fetchCustomAlbums()
+            guard !albums.contains(where: {
+                $0.id != album.id && $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+            }) else {
+                userMessage = "An album named “\(name)” already exists."
+                return false
+            }
+            guard let renamedAlbum = try database.renameCustomAlbum(id: album.id, to: name) else {
+                userMessage = "The album is no longer available."
+                return false
+            }
+            customAlbums = try database.fetchCustomAlbums()
+            smartAlbums = try database.fetchSmartAlbums()
+            userMessage = "Renamed the album to “\(renamedAlbum.name)”."
+            return true
+        } catch {
+            userMessage = "The album could not be renamed. \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func deleteCustomAlbum(_ album: CustomAlbum) async {
+        guard let database else {
+            userMessage = "Connect the storage device to continue."
+            return
+        }
+
+        do {
+            let isSelectedAlbum: Bool
+            if case .customAlbum(let selectedID)? = selectedSmartAlbum?.kind {
+                isSelectedAlbum = selectedID == album.id
+            } else {
+                isSelectedAlbum = false
+            }
+
+            try database.deleteCustomAlbum(id: album.id)
+            if isSelectedAlbum {
+                closeSmartAlbum()
+            }
+            customAlbums = try database.fetchCustomAlbums()
+            smartAlbums = try database.fetchSmartAlbums()
+            userMessage = "Deleted “\(album.name)” from DriveLens. Original photos and videos are not changed."
+        } catch {
+            userMessage = "The album could not be deleted. \(error.localizedDescription)"
+        }
+    }
+
+    private func showActionNotice(_ message: String) {
+        actionNoticeTask?.cancel()
+        actionNotice = message
+        actionNoticeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_600_000_000)
+            guard !Task.isCancelled else { return }
+            self?.actionNotice = nil
+        }
+    }
+
+    private func albumNotice(albumName: String, addedCount: Int, requestedCount: Int) -> String {
+        if addedCount == 0 {
+            return requestedCount == 1
+                ? "The selected item is already in “\(albumName)”."
+                : "All selected items are already in “\(albumName)”."
+        }
+
+        let addedText = "Added \(addedCount) item\(addedCount == 1 ? "" : "s") to “\(albumName)”."
+        let existingCount = requestedCount - addedCount
+        guard existingCount > 0 else { return addedText }
+        return addedText + " \(existingCount) \(existingCount == 1 ? "was" : "were") already there."
     }
 
     private static func missingRepairCandidates(from missingItems: [MediaItem]) -> [MissingFolderRepairCandidate] {
@@ -1983,10 +2178,10 @@ final class AppState: ObservableObject {
         }
 
         if summary.unsupportedFiles > 0 {
-            details.append("\(summary.unsupportedFiles) unsupported skipped")
+            details.append("\(summary.unsupportedFiles) unsupported file\(summary.unsupportedFiles == 1 ? "" : "s") skipped")
         }
         if summary.errors > 0 {
-            details.append("\(summary.errors) failed")
+            details.append("\(summary.errors) file\(summary.errors == 1 ? "" : "s") could not be indexed")
         }
 
         let mediaBreakdown = "\(summary.photosFound) photo\(summary.photosFound == 1 ? "" : "s"), \(summary.videosFound) video\(summary.videosFound == 1 ? "" : "s")"
@@ -2338,7 +2533,7 @@ final class AppState: ObservableObject {
             selectedMediaItem = visibleItemsForSelection().first
             userMessage = "Renamed \(plans.count) original file\(plans.count == 1 ? "" : "s") and updated the catalogue."
         } catch {
-            userMessage = error.localizedDescription
+            userMessage = "The original files could not be renamed. \(error.localizedDescription)"
         }
     }
 
@@ -2400,7 +2595,14 @@ final class AppState: ObservableObject {
             } else {
                 var message = "Found \(duplicateGroups.count) exact duplicate group\(duplicateGroups.count == 1 ? "" : "s") with about \(reclaimable) recoverable."
                 if missingCount > 0 || failedCount > 0 {
-                    message += " \(missingCount) missing and \(failedCount) failed."
+                    var issues: [String] = []
+                    if missingCount > 0 {
+                        issues.append("\(missingCount) original\(missingCount == 1 ? " was" : "s were") unavailable")
+                    }
+                    if failedCount > 0 {
+                        issues.append("\(failedCount) file\(failedCount == 1 ? "" : "s") could not be read")
+                    }
+                    message += " " + issues.joined(separator: "; ") + "."
                 }
                 userMessage = message
             }
@@ -2440,7 +2642,7 @@ final class AppState: ObservableObject {
     func mergeAllDuplicateGroups() {
         let items = duplicateGroups.flatMap(\.duplicateItems)
         guard !items.isEmpty else {
-            userMessage = "No duplicate copies are available to merge."
+            userMessage = "No extra duplicate copies are available."
             return
         }
 
@@ -2493,19 +2695,22 @@ final class AppState: ObservableObject {
 
         do {
             let paths = CataloguePaths(rootURL: catalogueRootURL)
-            let manager = FileManager.default
-            if manager.fileExists(atPath: paths.thumbnailsDirectory.path) {
-                try manager.removeItem(at: paths.thumbnailsDirectory)
-            }
-            if manager.fileExists(atPath: paths.videoThumbnailsDirectory.path) {
-                try manager.removeItem(at: paths.videoThumbnailsDirectory)
-            }
-            try manager.createDirectory(at: paths.thumbnailsDirectory, withIntermediateDirectories: true)
-            try manager.createDirectory(at: paths.videoThumbnailsDirectory, withIntermediateDirectories: true)
+            try await Task.detached(priority: .utility) {
+                let manager = FileManager.default
+                if manager.fileExists(atPath: paths.thumbnailsDirectory.path) {
+                    try manager.removeItem(at: paths.thumbnailsDirectory)
+                }
+                if manager.fileExists(atPath: paths.videoThumbnailsDirectory.path) {
+                    try manager.removeItem(at: paths.videoThumbnailsDirectory)
+                }
+                try manager.createDirectory(at: paths.thumbnailsDirectory, withIntermediateDirectories: true)
+                try manager.createDirectory(at: paths.videoThumbnailsDirectory, withIntermediateDirectories: true)
+            }.value
+            ThumbnailMemoryCache.shared.removeAll()
             await refreshAppStorageReport()
-            userMessage = "Cleared generated thumbnails. Run Update Catalogue to rebuild previews."
+            userMessage = "Deleted the generated thumbnail cache. Original photos and videos are not changed. Choose Update Catalogue to rebuild previews."
         } catch {
-            userMessage = "Could not clear thumbnail cache: \(error.localizedDescription)"
+            userMessage = "The thumbnail cache could not be deleted. \(error.localizedDescription) Original photos and videos are not changed."
         }
     }
 
@@ -2656,7 +2861,7 @@ final class AppState: ObservableObject {
             parts.append("removed \(missingCount) missing catalogue item\(missingCount == 1 ? "" : "s")")
         }
         if failedCount > 0 {
-            parts.append("\(failedCount) failed")
+            parts.append("\(failedCount) item\(failedCount == 1 ? "" : "s") could not be moved to Trash")
         }
         return parts.isEmpty ? "No items changed." : parts.joined(separator: ", ") + "."
     }
@@ -2667,10 +2872,10 @@ final class AppState: ObservableObject {
             parts.append("Copied \(copiedCount) item\(copiedCount == 1 ? "" : "s") to \(destinationName)")
         }
         if skippedCount > 0 {
-            parts.append("\(skippedCount) missing skipped")
+            parts.append("skipped \(skippedCount) missing original\(skippedCount == 1 ? "" : "s")")
         }
         if failedCount > 0 {
-            parts.append("\(failedCount) failed")
+            parts.append("\(failedCount) item\(failedCount == 1 ? "" : "s") could not be copied")
         }
         return parts.isEmpty ? "No items copied." : parts.joined(separator: ", ") + "."
     }
@@ -2832,12 +3037,12 @@ final class AppState: ObservableObject {
             } catch is CancellationError {
                 await MainActor.run {
                     self.scanProgress = nil
-                    self.userMessage = "Scan cancelled. You can resume with Update Catalogue."
+                    self.userMessage = "Catalogue update cancelled. Choose Update Catalogue when you are ready to continue."
                 }
             } catch {
                 await MainActor.run {
                     self.scanProgress = nil
-                    self.userMessage = "Scan stopped: \(error.localizedDescription)"
+                    self.userMessage = "The catalogue update stopped. \(error.localizedDescription) Original photos and videos are not changed."
                     self.ssdStatus = rootURL.isReachableDirectory ? .connected : .disconnected
                 }
             }
@@ -2859,7 +3064,7 @@ final class AppState: ObservableObject {
         guard let activeCatalogue, activeCatalogue.isNamedCatalogue else { return false }
         let reachableScopes = sourceScopes.filter { $0.source.rootURL.isReachableDirectory }
         guard !reachableScopes.isEmpty else {
-            userMessage = "No imported folders are currently reachable."
+            userMessage = "Connect the storage device to continue. None of the imported folders are currently available."
             return false
         }
 
@@ -2945,12 +3150,12 @@ final class AppState: ObservableObject {
             } catch is CancellationError {
                 await MainActor.run {
                     self.scanProgress = nil
-                    self.userMessage = "Scan cancelled. You can resume with Update Catalogue."
+                    self.userMessage = "Catalogue update cancelled. Choose Update Catalogue when you are ready to continue."
                 }
             } catch {
                 await MainActor.run {
                     self.scanProgress = nil
-                    self.userMessage = "Scan stopped: \(error.localizedDescription)"
+                    self.userMessage = "The catalogue update stopped. \(error.localizedDescription) Original photos and videos are not changed."
                     self.ssdStatus = reachableScopes.contains { $0.source.rootURL.isReachableDirectory } ? .connected : .disconnected
                 }
             }
@@ -3183,31 +3388,24 @@ enum BatchDeleteContext: Equatable {
         case .selection:
             return count == 1 ? "Move item to Trash?" : "Move selected items to Trash?"
         case .duplicateGroup:
-            return "Merge this duplicate group?"
+            return "Move duplicate copies to Trash?"
         case .allDuplicates:
-            return "Merge all duplicate groups?"
+            return "Move extra duplicate copies to Trash?"
         }
     }
 
     func buttonTitle(count: Int) -> String {
-        switch self {
-        case .selection:
-            return "Move \(count) Item\(count == 1 ? "" : "s") to Trash"
-        case .duplicateGroup:
-            return "Merge Group"
-        case .allDuplicates:
-            return "Merge All Duplicates"
-        }
+        "Move to Trash"
     }
 
     func message(count: Int) -> String {
         switch self {
         case .selection:
-            return "This moves the selected original files to the macOS Trash and removes their records from the DriveLens catalogue."
+            return "This moves \(count) original file\(count == 1 ? "" : "s") to Trash and removes the corresponding catalogue record\(count == 1 ? "" : "s")."
         case .duplicateGroup:
-            return "DriveLens will keep the suggested or chosen original file and move \(count) duplicate cop\(count == 1 ? "y" : "ies") to the macOS Trash."
+            return "DriveLens keeps the suggested or chosen original and moves \(count) duplicate cop\(count == 1 ? "y" : "ies") to Trash."
         case .allDuplicates:
-            return "DriveLens will keep one suggested original file from each duplicate group and move \(count) duplicate cop\(count == 1 ? "y" : "ies") to the macOS Trash."
+            return "DriveLens keeps one suggested original from each group and moves \(count) duplicate cop\(count == 1 ? "y" : "ies") to Trash."
         }
     }
 }

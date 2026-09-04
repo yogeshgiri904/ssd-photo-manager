@@ -60,7 +60,7 @@ struct DriveLensApp: App {
                     .keyboardShortcut("7", modifiers: [.command])
                 Button("Duplicates") { appState.select(.duplicates) }
                     .keyboardShortcut("8", modifiers: [.command])
-                Button("App Info") { appState.select(.appInfo) }
+                Button("Storage & Privacy") { appState.select(.appInfo) }
                     .keyboardShortcut("9", modifiers: [.command])
 
                 Divider()
@@ -104,6 +104,43 @@ struct DriveLensApp: App {
 
                 Divider()
 
+                Button(favoriteCommandTitle) {
+                    Task {
+                        await appState.setFavorite(
+                            !selectedItemsAreFavorites,
+                            for: appState.selectedOrCurrentVisibleItems()
+                        )
+                    }
+                }
+                .disabled(!appState.hasSelectedOrCurrentMediaItems)
+
+                Menu("Add to Album") {
+                    if appState.customAlbums.isEmpty {
+                        Button("No Custom Albums") {}
+                            .disabled(true)
+                    } else {
+                        ForEach(appState.customAlbums) { album in
+                            Button(album.name) {
+                                Task {
+                                    await appState.addToCustomAlbum(
+                                        named: album.name,
+                                        items: appState.selectedOrCurrentVisibleItems()
+                                    )
+                                }
+                            }
+                            .disabled(!appState.hasSelectedOrCurrentMediaItems)
+                        }
+                    }
+
+                    Divider()
+
+                    Button("Manage Albums…") {
+                        appState.select(.smartAlbums)
+                    }
+                }
+
+                Divider()
+
                 Button("Find Duplicates") {
                     appState.select(.duplicates)
                     Task { await appState.findDuplicates() }
@@ -111,7 +148,7 @@ struct DriveLensApp: App {
                 .keyboardShortcut("d", modifiers: [.command, .shift])
                 .disabled(appState.isFindingDuplicates || !appState.canScan)
 
-                Button("Merge All Duplicates") {
+                Button("Move Extra Duplicate Copies to Trash...") {
                     appState.select(.duplicates)
                     appState.mergeAllDuplicateGroups()
                 }
@@ -131,7 +168,7 @@ struct DriveLensApp: App {
                 .keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(!appState.hasSelectedOrCurrentMediaItems)
 
-                Button("Move Selected to Trash") {
+                Button("Move to Trash...") {
                     appState.requestDeleteSelectedMediaItems()
                 }
                 .disabled(!appState.hasSelectedOrCurrentMediaItems)
@@ -164,5 +201,14 @@ struct DriveLensApp: App {
                 .keyboardShortcut("5", modifiers: [.command, .option])
             }
         }
+    }
+
+    private var selectedItemsAreFavorites: Bool {
+        let items = appState.selectedOrCurrentVisibleItems()
+        return !items.isEmpty && items.allSatisfy(appState.favoriteState)
+    }
+
+    private var favoriteCommandTitle: String {
+        selectedItemsAreFavorites ? "Remove from Favorites" : "Mark as Favorite"
     }
 }

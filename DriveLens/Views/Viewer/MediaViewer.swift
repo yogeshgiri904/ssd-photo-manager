@@ -4,6 +4,7 @@ import SwiftUI
 struct MediaViewer: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isKeyboardFocused: Bool
     var closeAction: (() -> Void)?
     @GestureState private var gestureScale: CGFloat = 1
@@ -114,13 +115,13 @@ struct MediaViewer: View {
                             rotation: rotation,
                             stageSize: stageSize
                         )
-                        .animation(.snappy(duration: 0.18), value: baseScale)
-                        .animation(.snappy(duration: 0.18), value: rotation)
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.18), value: baseScale)
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.18), value: rotation)
                     } else if imageLoadFailed {
                         ContentUnavailableView {
                             Label("Preview Unavailable", systemImage: "exclamationmark.triangle")
                         } description: {
-                            Text("DriveLens could not open this image preview.")
+                            Text("The original image could not be opened. The catalogue record has not been changed.")
                         } actions: {
                             Button {
                                 appState.revealInFinder(item)
@@ -177,7 +178,13 @@ struct MediaViewer: View {
                     ContentUnavailableView {
                         Label("Video Missing", systemImage: "film.stack")
                     } description: {
-                        Text("DriveLens cannot find the original video file.")
+                        Text("The original video is unavailable. Connect the storage device to continue.")
+                    } actions: {
+                        Button {
+                            closeViewer()
+                        } label: {
+                            Label("Close", systemImage: "xmark")
+                        }
                     }
                     .foregroundStyle(.white)
                 } else {
@@ -218,7 +225,9 @@ struct MediaViewer: View {
 
         if item.kind == .video {
             player = AVPlayer(url: url)
-        } else if let loadedImage = NSImage(contentsOf: url) {
+        } else if let data = await Task.detached(priority: .userInitiated, operation: {
+            try? Data(contentsOf: url, options: [.mappedIfSafe, .uncached])
+        }).value, !Task.isCancelled, let loadedImage = NSImage(data: data) {
             image = loadedImage
         } else {
             imageLoadFailed = true
@@ -235,11 +244,11 @@ struct MediaViewer: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(.black.opacity(0.58), in: Capsule())
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.96)))
                     .accessibilityHidden(true)
             }
         }
-        .animation(.easeOut(duration: 0.14), value: interactionMessage)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: interactionMessage)
     }
 
     private var imageNavigationGesture: some Gesture {
@@ -641,6 +650,11 @@ private struct ViewerToolbar: View {
                 .help("Next Item")
             }
 
+            ControlGroup {
+                MediaFavoriteButton(items: [item])
+                AddToAlbumMenu(items: [item])
+            }
+
             if isImage {
                 ControlGroup {
                     Button(action: zoomOut) {
@@ -661,9 +675,9 @@ private struct ViewerToolbar: View {
                     .help("Zoom In")
 
                     Button(action: actualSize) {
-                        Label("Actual Size", systemImage: "1.magnifyingglass")
+                        Label("Zoom to 200%", systemImage: "1.magnifyingglass")
                     }
-                    .help("Actual Size")
+                    .help("Zoom to 200%")
 
                     Button(action: rotate) {
                         Label("Rotate", systemImage: "rotate.right")
@@ -745,11 +759,12 @@ private struct ViewerStatusBar: View {
 
     private var dimensionsText: String? {
         guard let width = item.width, let height = item.height else { return nil }
-        return "\(width) x \(height)"
+        return "\(width) × \(height)"
     }
 }
 
 private struct ViewerDetailsPanel: View {
+    @EnvironmentObject private var appState: AppState
     let item: MediaItem
 
     var body: some View {
@@ -770,6 +785,7 @@ private struct ViewerDetailsPanel: View {
                 DetailRow(title: "Dimensions", value: dimensionsText)
                 DetailRow(title: "Camera", value: item.cameraText.isEmpty ? nil : item.cameraText)
                 DetailRow(title: "Location", value: item.placeText.isEmpty ? (item.coordinate == nil ? nil : "Location Available") : item.placeText)
+                DetailRow(title: "Favorite", value: appState.favoriteState(for: item) ? "Yes" : "No")
                 DetailRow(title: "File", value: item.filename)
             }
 
@@ -787,7 +803,7 @@ private struct ViewerDetailsPanel: View {
 
     private var dimensionsText: String? {
         guard let width = item.width, let height = item.height else { return nil }
-        return "\(width) x \(height)"
+        return "\(width) × \(height)"
     }
 }
 
@@ -799,8 +815,8 @@ private struct DetailRow: View {
         if let value, !value.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
                     .textCase(.uppercase)
 
                 Text(value)

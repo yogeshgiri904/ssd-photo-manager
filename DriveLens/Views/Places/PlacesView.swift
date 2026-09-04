@@ -3,6 +3,7 @@ import SwiftUI
 
 struct PlacesView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let items: [MediaItem]
     let clusters: [PlaceCluster]
     let counts: CatalogueCounts
@@ -23,9 +24,9 @@ struct PlacesView: View {
             ZStack {
                 if clusters.isEmpty {
                     ContentUnavailableView {
-                        Label("No GPS information", systemImage: "map")
+                        Label("No Locations", systemImage: "map")
                     } description: {
-                        Text("No indexed media has GPS metadata yet. Timeline and Folders still include every item.")
+                        Text("No catalogued items include location metadata. You can still find every item in Timeline and Folders.")
                     } actions: {
                         Button {
                             appState.requestCatalogueUpdate()
@@ -45,6 +46,8 @@ struct PlacesView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .help("\(cluster.itemCount) items near this location")
+                                .accessibilityLabel("\(cluster.itemCount) items near \(cluster.representativeFilename)")
+                                .accessibilityHint("Shows the media at this location")
                             }
                         }
                     }
@@ -53,6 +56,7 @@ struct PlacesView: View {
                         MapScaleView()
                     }
                     .mapStyle(.standard(elevation: .flat))
+                    .accessibilityLabel("Media locations map")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -106,6 +110,10 @@ struct PlacesView: View {
                                         appState.selectedMediaItem = item
                                     }
                                 )
+                                .contextMenu {
+                                    MediaFavoriteButton(items: [item])
+                                    AddToAlbumMenu(items: [item], allowsCreatingAlbum: false)
+                                }
                         }
                     }
                     .padding(.horizontal, 12)
@@ -149,7 +157,7 @@ struct PlacesView: View {
     }
 
     private func focus(_ cluster: PlaceCluster) {
-        withAnimation(.easeInOut(duration: 0.22)) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
             position = .region(
                 MKCoordinateRegion(
                     center: cluster.coordinate,
@@ -170,7 +178,7 @@ struct PlacesView: View {
         }
 
         let paddedRect = rect.insetBy(dx: -max(rect.width * 0.18, 50_000), dy: -max(rect.height * 0.18, 50_000))
-        withAnimation(.easeInOut(duration: 0.28)) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.28)) {
             position = .rect(paddedRect)
         }
     }

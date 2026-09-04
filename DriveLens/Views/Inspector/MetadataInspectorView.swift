@@ -34,7 +34,7 @@ struct MetadataInspectorView: View {
                     InspectorRow("Type", item.kind.label)
                     InspectorRow("File Size", ByteCountFormatter.string(fromByteCount: item.fileSize, countStyle: .file))
                     if let width = item.width, let height = item.height {
-                        InspectorRow("Dimensions", "\(width) x \(height)")
+                        InspectorRow("Dimensions", "\(width) × \(height)")
                     }
                     if let duration = item.duration, duration.isFinite {
                         InspectorRow("Duration", format(duration))
@@ -47,7 +47,7 @@ struct MetadataInspectorView: View {
                 }
 
                 InspectorSection("More Details") {
-                    InspectorRow("Favorite", item.isFavorite ? "Yes" : "No")
+                    InspectorRow("Favorite", appState.favoriteState(for: item) ? "Yes" : "No")
                     InspectorRow("Caption", item.caption ?? "None")
                     InspectorRow("Keywords", item.keywords.isEmpty ? "None" : item.keywords.joined(separator: ", "))
                     if let latitude = item.latitude, let longitude = item.longitude {
@@ -238,6 +238,9 @@ private struct InspectorActionBar: View {
 
             Spacer(minLength: 0)
 
+            favoriteButton
+            albumMenu
+
             inspectorButton("Reveal", systemImage: "finder") {
                 appState.revealInFinder(item)
             }
@@ -281,6 +284,9 @@ private struct InspectorActionBar: View {
 
                 Spacer(minLength: 0)
 
+                favoriteButton
+                albumMenu
+
                 Button(role: .destructive) {
                     appState.requestDelete(item)
                 } label: {
@@ -321,6 +327,20 @@ private struct InspectorActionBar: View {
         .buttonStyle(.bordered)
         .labelStyle(.iconOnly)
         .controlSize(.small)
+    }
+
+    private var favoriteButton: some View {
+        MediaFavoriteButton(items: [item])
+            .buttonStyle(.bordered)
+            .labelStyle(.iconOnly)
+            .controlSize(.small)
+    }
+
+    private var albumMenu: some View {
+        AddToAlbumMenu(items: [item])
+            .menuStyle(.button)
+            .labelStyle(.iconOnly)
+            .controlSize(.small)
     }
 }
 
@@ -420,7 +440,7 @@ private struct BatchMetadataPanel: View {
                     Button {
                         Task { await appState.setFavorite(true, for: items) }
                     } label: {
-                        Label("Mark Favorite", systemImage: "heart.fill")
+                        Label("Mark as Favorite", systemImage: "heart.fill")
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
@@ -428,7 +448,7 @@ private struct BatchMetadataPanel: View {
                     Button {
                         Task { await appState.setFavorite(false, for: items) }
                     } label: {
-                        Label("Remove Favorite", systemImage: "heart.slash")
+                        Label("Remove from Favorites", systemImage: "heart.slash")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)

@@ -102,6 +102,7 @@ private struct SearchHeader: View {
             isSearchFocused = true
         }
     }
+
 }
 
 private struct SearchFilterToggle: View {
@@ -115,5 +116,7 @@ private struct SearchFilterToggle: View {
         }
         .toggleStyle(.button)
         .help(title)
+        .accessibilityLabel("Show \(title.lowercased())")
+        .accessibilityValue(isOn ? "On" : "Off")
     }
 }

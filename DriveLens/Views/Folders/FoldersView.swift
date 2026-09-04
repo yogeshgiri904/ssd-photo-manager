@@ -37,9 +37,9 @@ struct FoldersView: View {
             if selectedFolderPath == nil {
                 if sortedFolders.isEmpty {
                     ContentUnavailableView {
-                        Label("No folders yet", systemImage: "folder")
+                        Label("No Folders", systemImage: "folder")
                     } description: {
-                        Text("Update the catalogue to browse imported folder structure.")
+                        Text("Add a folder to begin cataloguing photos and videos. Original photos and videos are not changed.")
                     } actions: {
                         Button {
                             appState.requestCatalogueUpdate()
@@ -47,19 +47,31 @@ struct FoldersView: View {
                             Label("Update Catalogue", systemImage: "arrow.clockwise")
                         }
                         .disabled(!appState.canScan)
+
+                        Button {
+                            Task { await appState.addFoldersToCurrentCatalogue() }
+                        } label: {
+                            Label("Add Folders", systemImage: "folder.badge.plus")
+                        }
+                        .disabled(!appState.canAddFoldersToCatalogue)
                     }
                 } else {
                     List(sortedFolders) { folder in
-                        FolderRow(folder: folder)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                select(folder.path)
+                        Button {
+                            select(folder.path)
+                        } label: {
+                            FolderRow(folder: folder)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens this folder in the catalogue")
+                        .contextMenu {
+                            Button {
+                                reveal(folder)
+                            } label: {
+                                Label("Reveal in Finder", systemImage: "finder")
                             }
-                            .contextMenu {
-                                Button("Reveal Folder in Finder") {
-                                    reveal(folder)
-                                }
-                            }
+                        }
                     }
                     .listStyle(.inset)
                 }

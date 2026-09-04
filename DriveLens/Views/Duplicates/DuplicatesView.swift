@@ -132,11 +132,11 @@ struct DuplicatesView: View {
         Button {
             appState.mergeAllDuplicateGroups()
         } label: {
-            Label("Merge All", systemImage: "rectangle.stack.badge.minus")
+            Label("Move Extra Copies to Trash", systemImage: "trash")
         }
         .buttonStyle(.bordered)
         .disabled(appState.duplicateGroups.isEmpty || appState.isFindingDuplicates)
-        .help("Keep one suggested original from each duplicate group and move extra copies to Trash after confirmation")
+        .help("Keep one suggested original from each group and review the extra copies before moving them to Trash")
     }
 
     @ViewBuilder
@@ -350,7 +350,7 @@ private struct DuplicateGroupDetail: View {
             Button {
                 appState.keepSuggestedDuplicateGroup(group)
             } label: {
-                Label("Keep Suggested", systemImage: "wand.and.stars")
+                Label("Use Suggested Keeper...", systemImage: "checkmark.seal")
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
@@ -425,6 +425,18 @@ private struct DuplicateItemCard: View {
                 .onTapGesture(count: 2) {
                     appState.viewInViewer(item)
                 }
+                .contextMenu {
+                    MediaFavoriteButton(items: [item])
+                    AddToAlbumMenu(items: [item], allowsCreatingAlbum: false)
+
+                    Divider()
+
+                    Button {
+                        appState.revealInFinder(item)
+                    } label: {
+                        Label("Reveal in Finder", systemImage: "finder")
+                    }
+                }
                 .frame(maxWidth: .infinity)
                 .clipped()
 
@@ -466,7 +478,7 @@ private struct DuplicateItemCard: View {
                 Button {
                     appState.keep(item, in: group)
                 } label: {
-                    Label("Keep This", systemImage: "checkmark.circle")
+                    Label("Keep This...", systemImage: "checkmark.circle")
                 }
                 .buttonStyle(.bordered)
                 .tint(isSuggestedKeeper ? .accentColor : nil)
@@ -497,6 +509,6 @@ private struct DuplicateItemCard: View {
 
     private var dimensions: String? {
         guard let width = item.width, let height = item.height else { return nil }
-        return "\(width) x \(height)"
+        return "\(width) × \(height)"
     }
 }
