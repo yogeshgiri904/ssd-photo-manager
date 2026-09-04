@@ -8,7 +8,7 @@ struct ScanProgressView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Label("Scanning Catalogue", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Updating Catalogue", systemImage: "arrow.triangle.2.circlepath")
                         .font(.headline)
                     Text(progressText)
                         .font(.caption)
@@ -21,20 +21,21 @@ struct ScanProgressView: View {
                 .labelStyle(.iconOnly)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .help("Cancel Scan")
+                .help("Cancel catalogue update")
+                .accessibilityLabel("Cancel catalogue update")
             }
 
             ProgressView(value: Double(progress.filesScanned), total: Double(max(progress.totalFilesDiscovered, 1)))
                 .progressViewStyle(.linear)
 
-            Text(progress.currentFilename.isEmpty ? "Preparing scan..." : progress.currentFilename)
+            Text(progress.currentFilename.isEmpty ? "Preparing catalogue update..." : progress.currentFilename)
                 .font(.caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .foregroundStyle(.secondary)
 
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
-                metric("Files", "\(progress.filesScanned) / \(progress.totalFilesDiscovered)")
+                metric("Checked", "\(progress.filesScanned) / \(progress.totalFilesDiscovered)")
                 metric("New", "\(progress.newFiles)")
                 metric("Already Indexed", "\(progress.alreadyIndexedFiles)")
                 metric("Refreshed", "\(progress.refreshedFiles)")
@@ -78,7 +79,7 @@ struct ScanProgressView: View {
     }
 
     private var progressText: String {
-        guard progress.totalFilesDiscovered > 0 else { return "Discovering media files" }
+        guard progress.totalFilesDiscovered > 0 else { return "Discovering photos and videos" }
         let percent = Int((Double(progress.filesScanned) / Double(progress.totalFilesDiscovered)) * 100)
         return "\(percent)% complete"
     }

@@ -233,8 +233,10 @@ struct TimelineView: View {
                     Label("Clear Search", systemImage: "xmark.circle")
                 }
             } else {
-                Button("Update Catalogue") {
+                Button {
                     appState.requestCatalogueUpdate()
+                } label: {
+                    Label("Update Catalogue", systemImage: "arrow.clockwise")
                 }
                 .disabled(!appState.canScan)
             }
@@ -272,7 +274,10 @@ struct TimelineView: View {
         if title == "Search" {
             return "Try a different filename, date, place, camera, or filter combination."
         }
-        return "Choose Update Catalogue to scan the selected SSD folder."
+        if showsQuickFilters && controlScope != .none {
+            return "Clear filters or update the catalogue to refresh indexed media from the selected folders."
+        }
+        return "Choose Update Catalogue to scan the selected folders. Original photos and videos are not changed."
     }
 
     private var emptyStateSymbol: String {
@@ -413,21 +418,21 @@ private struct BatchSelectionBar: View {
             Button {
                 appState.copySelectedMediaItems()
             } label: {
-                Label("Copy", systemImage: "doc.on.doc")
+                Label("Copy Originals", systemImage: "doc.on.doc")
             }
             .help("Copy selected originals")
 
             Button {
                 appState.requestRenameSelectedMediaItems()
             } label: {
-                Label("Rename", systemImage: "pencil")
+                Label("Rename Originals", systemImage: "pencil")
             }
             .help("Rename selected originals")
 
             Button(role: .destructive) {
                 appState.requestDeleteSelectedMediaItems()
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Move to Trash", systemImage: "trash")
             }
             .help("Move selected originals to Trash")
 
@@ -582,11 +587,12 @@ private struct TimelineHeader: View {
                 Button {
                     Task { await resetControls() }
                 } label: {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
+                    Label("Reset Filters", systemImage: "arrow.counterclockwise")
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.bordered)
                 .help("Reset filters and sorting")
+                .accessibilityLabel("Reset filters and sorting")
             }
         }
     }
@@ -616,7 +622,7 @@ private struct TimelineHeader: View {
             .frame(width: 128, alignment: .leading)
         }
         .menuStyle(.button)
-        .help("Sort Timeline")
+        .help("Sort media")
     }
 
     private var yearMenu: some View {
@@ -642,7 +648,7 @@ private struct TimelineHeader: View {
         }
         .menuStyle(.button)
         .disabled(years.isEmpty)
-        .help("Filter by Year")
+        .help("Filter by capture year")
     }
 
     private var gridSizeControl: some View {
@@ -662,7 +668,7 @@ private struct TimelineHeader: View {
             RoundedRectangle(cornerRadius: 7)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         }
-        .help("Thumbnail Size")
+        .help("Adjust thumbnail size")
     }
 
     private var quickFilters: some View {
@@ -727,10 +733,11 @@ private struct TimelineHeader: View {
 
         if showsQuickFilters {
             let yearText = selectedYear.map { " from \($0)" } ?? ""
-            return "\(total) items\(yearText) sorted by \(activeSort.title.lowercased())"
+            let filterText = activeQuickFilter == .all ? "" : " · \(activeQuickFilter.title)"
+            return "\(total) indexed item\(total == 1 ? "" : "s")\(yearText)\(filterText) · \(activeSort.title)"
         }
 
-        return "\(total) catalogue items"
+        return "\(total) catalogue item\(total == 1 ? "" : "s")"
     }
 
     private var activeQuickFilter: TimelineQuickFilter {

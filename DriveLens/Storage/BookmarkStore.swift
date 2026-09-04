@@ -5,6 +5,7 @@ struct SavedCatalogue: Identifiable, Codable, Hashable {
     var name: String
     var path: String
     var bookmarkData: Data?
+    var cataloguesDirectoryBookmarkData: Data?
     var lastOpenedAt: Date
     var sources: [CatalogueSource]?
 
@@ -12,7 +13,7 @@ struct SavedCatalogue: Identifiable, Codable, Hashable {
         if isNamedCatalogue {
             return true
         }
-        return bookmarkData != nil || sourceList.contains(where: { $0.bookmarkData != nil })
+        return bookmarkData != nil || cataloguesDirectoryBookmarkData != nil || sourceList.contains(where: { $0.bookmarkData != nil })
     }
 
     var isNamedCatalogue: Bool {
@@ -50,6 +51,7 @@ struct SavedCatalogue: Identifiable, Codable, Hashable {
         case name
         case path
         case bookmarkData
+        case cataloguesDirectoryBookmarkData
         case lastOpenedAt
         case sources
     }
@@ -59,6 +61,7 @@ struct SavedCatalogue: Identifiable, Codable, Hashable {
         name: String,
         path: String,
         bookmarkData: Data?,
+        cataloguesDirectoryBookmarkData: Data? = nil,
         lastOpenedAt: Date,
         sources: [CatalogueSource]? = nil
     ) {
@@ -66,6 +69,7 @@ struct SavedCatalogue: Identifiable, Codable, Hashable {
         self.name = name
         self.path = path
         self.bookmarkData = bookmarkData
+        self.cataloguesDirectoryBookmarkData = cataloguesDirectoryBookmarkData
         self.lastOpenedAt = lastOpenedAt
         self.sources = sources
     }
@@ -76,6 +80,7 @@ struct SavedCatalogue: Identifiable, Codable, Hashable {
         name = try container.decode(String.self, forKey: .name)
         path = try container.decode(String.self, forKey: .path)
         bookmarkData = try container.decodeIfPresent(Data.self, forKey: .bookmarkData)
+        cataloguesDirectoryBookmarkData = try container.decodeIfPresent(Data.self, forKey: .cataloguesDirectoryBookmarkData)
         lastOpenedAt = try container.decode(Date.self, forKey: .lastOpenedAt)
         sources = try container.decodeIfPresent([CatalogueSource].self, forKey: .sources)
     }
@@ -184,8 +189,8 @@ struct SecurityScopedBookmarkStore {
         }
         let removableURL = try removableCatalogueURL(for: catalogue)
 
-        if FileManager.default.fileExists(atPath: removableURL.path) {
-            try withCatalogueStorageAccess(for: catalogue) {
+        try withCatalogueStorageAccess(for: catalogue) {
+            if FileManager.default.fileExists(atPath: removableURL.path) {
                 try FileManager.default.removeItem(at: removableURL)
             }
         }
@@ -218,11 +223,7 @@ struct SecurityScopedBookmarkStore {
     }
 
     private func withCatalogueStorageAccess<T>(for catalogue: SavedCatalogue, operation: () throws -> T) throws -> T {
-        guard catalogue.bookmarkData != nil else {
-            return try operation()
-        }
-
-        guard let url = try resolvedCatalogueStorageURL(for: catalogue) else {
+        guard let url = try resolvedCatalogueMutationAccessURL(for: catalogue) else {
             return try operation()
         }
         let didStartAccessing = url.startAccessingSecurityScopedResource()
@@ -232,6 +233,20 @@ struct SecurityScopedBookmarkStore {
             }
         }
         return try operation()
+    }
+
+    private func resolvedCatalogueMutationAccessURL(for catalogue: SavedCatalogue) throws -> URL? {
+        guard let bookmarkData = catalogue.cataloguesDirectoryBookmarkData ?? catalogue.bookmarkData else {
+            return nil
+        }
+
+        var stale = false
+        return try URL(
+            resolvingBookmarkData: bookmarkData,
+            options: [.withSecurityScope],
+            relativeTo: nil,
+            bookmarkDataIsStale: &stale
+        )
     }
 
     func clear() {
@@ -253,11 +268,17 @@ struct SecurityScopedBookmarkStore {
         let name = sanitizedCatalogueName(rawName)
         let id = UUID().uuidString
         let directory = try catalogueDirectory(id: id, storageRootURL: storageRootURL)
+        let cataloguesDirectory = directory.deletingLastPathComponent()
         let catalogue = SavedCatalogue(
             id: id,
             name: name,
             path: directory.path,
             bookmarkData: try? directory.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            ),
+            cataloguesDirectoryBookmarkData: try? cataloguesDirectory.bookmarkData(
                 options: [.withSecurityScope],
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil

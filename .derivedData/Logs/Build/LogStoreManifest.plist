@@ -6,7 +6,7 @@
 	<integer>12</integer>
 	<key>logs</key>
 	<dict>
-		<key>1B1B87AE-A08A-4FEE-A547-4072E1FD957B</key>
+		<key>34EA252A-920C-4C46-8749-2243F41C9270</key>
 		<dict>
 			<key>className</key>
 			<string>IDECommandLineBuildLog</string>
@@ -15,49 +15,7 @@
 			<key>domainType</key>
 			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
 			<key>fileName</key>
-			<string>1B1B87AE-A08A-4FEE-A547-4072E1FD957B.xcactivitylog</string>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>E</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>1</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>DriveLens project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>DriveLens</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Building project DriveLens with scheme DriveLens and configuration Debug</string>
-			<key>timeStartedRecording</key>
-			<real>810165133.98155904</real>
-			<key>timeStoppedRecording</key>
-			<real>810165136.96387601</real>
-			<key>title</key>
-			<string>Building project DriveLens with scheme DriveLens and configuration Debug</string>
-			<key>uniqueIdentifier</key>
-			<string>1B1B87AE-A08A-4FEE-A547-4072E1FD957B</string>
-		</dict>
-		<key>1DC03D3B-DA49-458C-95EF-8D18BB8FB4BD</key>
-		<dict>
-			<key>className</key>
-			<string>IDECommandLineBuildLog</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
-			<key>fileName</key>
-			<string>1DC03D3B-DA49-458C-95EF-8D18BB8FB4BD.xcactivitylog</string>
+			<string>34EA252A-920C-4C46-8749-2243F41C9270.xcactivitylog</string>
 			<key>hasPrimaryLog</key>
 			<true/>
 			<key>primaryObservable</key>
@@ -82,15 +40,15 @@
 			<key>signature</key>
 			<string>Building project DriveLens with scheme DriveLens and configuration Debug</string>
 			<key>timeStartedRecording</key>
-			<real>810165586.39891899</real>
+			<real>810193447.87882102</real>
 			<key>timeStoppedRecording</key>
-			<real>810165593.54622197</real>
+			<real>810193455.319103</real>
 			<key>title</key>
 			<string>Building project DriveLens with scheme DriveLens and configuration Debug</string>
 			<key>uniqueIdentifier</key>
-			<string>1DC03D3B-DA49-458C-95EF-8D18BB8FB4BD</string>
+			<string>34EA252A-920C-4C46-8749-2243F41C9270</string>
 		</dict>
-		<key>6F493E27-0D57-4E50-B624-1EF7370B498A</key>
+		<key>808A3450-07D4-40FB-86DF-1E5CE8848A90</key>
 		<dict>
 			<key>className</key>
 			<string>IDECommandLineBuildLog</string>
@@ -99,7 +57,7 @@
 			<key>domainType</key>
 			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
 			<key>fileName</key>
-			<string>6F493E27-0D57-4E50-B624-1EF7370B498A.xcactivitylog</string>
+			<string>808A3450-07D4-40FB-86DF-1E5CE8848A90.xcactivitylog</string>
 			<key>hasPrimaryLog</key>
 			<true/>
 			<key>primaryObservable</key>
@@ -124,55 +82,13 @@
 			<key>signature</key>
 			<string>Building project DriveLens with scheme DriveLens and configuration Debug</string>
 			<key>timeStartedRecording</key>
-			<real>810165625.58303905</real>
+			<real>810167566.75919902</real>
 			<key>timeStoppedRecording</key>
-			<real>810165630.79406404</real>
+			<real>810167567.56966197</real>
 			<key>title</key>
 			<string>Building project DriveLens with scheme DriveLens and configuration Debug</string>
 			<key>uniqueIdentifier</key>
-			<string>6F493E27-0D57-4E50-B624-1EF7370B498A</string>
-		</dict>
-		<key>BAB31217-1C6C-4E21-9D61-68DF025A1711</key>
-		<dict>
-			<key>className</key>
-			<string>IDECommandLineBuildLog</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
-			<key>fileName</key>
-			<string>BAB31217-1C6C-4E21-9D61-68DF025A1711.xcactivitylog</string>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>DriveLens project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>DriveLens</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Building project DriveLens with scheme DriveLens and configuration Debug</string>
-			<key>timeStartedRecording</key>
-			<real>810165164.34453106</real>
-			<key>timeStoppedRecording</key>
-			<real>810165171.22343695</real>
-			<key>title</key>
-			<string>Building project DriveLens with scheme DriveLens and configuration Debug</string>
-			<key>uniqueIdentifier</key>
-			<string>BAB31217-1C6C-4E21-9D61-68DF025A1711</string>
+			<string>808A3450-07D4-40FB-86DF-1E5CE8848A90</string>
 		</dict>
 	</dict>
 </dict>

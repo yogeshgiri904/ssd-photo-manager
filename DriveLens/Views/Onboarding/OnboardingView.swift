@@ -6,8 +6,8 @@ struct OnboardingView: View {
 
     private let pages = [
         OnboardingPage(
-            title: "Your media stays on your SSD",
-            message: "DriveLens creates a searchable catalogue without moving or uploading your photographs and videos.",
+            title: "Your media stays where it is",
+            message: "DriveLens builds a private local catalogue without moving, renaming, or uploading your photos and videos.",
             image: "externaldrive"
         ),
         OnboardingPage(
@@ -17,7 +17,7 @@ struct OnboardingView: View {
         ),
         OnboardingPage(
             title: "Choose folders to catalogue",
-            message: "Select one or more folders. DriveLens stores its private catalogue in .drivelens at the storage root, and you can rename it later in App Info.",
+            message: "Select one or more folders. DriveLens stores generated catalogue data in .drivelens at the storage root, and you can rename it later in App Info.",
             image: "folder.badge.plus"
         )
     ]
@@ -166,7 +166,7 @@ private struct CatalogueChooserHeader: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Create From Folders")
                         .font(.headline)
-                    Text("Pick one or more folders. DriveLens stores generated catalogue data in .drivelens at the storage root.")
+                    Text("Pick one or more folders. Originals stay in place; DriveLens stores metadata, thumbnails, and indexes in .drivelens at the storage root.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -174,9 +174,9 @@ private struct CatalogueChooserHeader: View {
             }
 
             HStack(spacing: 8) {
-                CatalogueSetupBadge(title: "Media stays put", systemImage: "externaldrive")
-                CatalogueSetupBadge(title: "Private index", systemImage: "lock.shield")
-                CatalogueSetupBadge(title: "Rename later", systemImage: "pencil")
+                CatalogueSetupBadge(title: "Originals unchanged", systemImage: "checkmark.shield")
+                CatalogueSetupBadge(title: "Local catalogue", systemImage: "lock.shield")
+                CatalogueSetupBadge(title: ".drivelens storage", systemImage: "folder")
             }
         }
     }
@@ -214,7 +214,7 @@ private struct EmptyCatalogueChooserState: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("No saved catalogues")
                     .font(.callout.weight(.semibold))
-                Text("Choose folders to create your first DriveLens catalogue.")
+                Text("Choose folders to create your first private catalogue.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -285,7 +285,7 @@ private struct SavedCatalogueRow: View {
                     Button {
                         appState.forgetSavedCatalogue(catalogue)
                     } label: {
-                        Label("Forget Mapping", systemImage: "xmark.circle")
+                        Label("Forget Saved Pointer", systemImage: "xmark.circle")
                     }
                 }
             } label: {
@@ -295,6 +295,7 @@ private struct SavedCatalogueRow: View {
             .buttonStyle(.borderless)
             .controlSize(.small)
             .help("Catalogue actions")
+            .accessibilityLabel("Catalogue actions")
 
             openButton
         }
@@ -414,9 +415,9 @@ private struct SavedCatalogueRow: View {
 
     private var actionHelp: String {
         if !isReachable {
-            return "Connect the SSD to open this mapping"
+            return "Connect the storage device to open this catalogue"
         }
-        return catalogue.hasSavedPermission ? "Open this saved catalogue" : "Grant macOS permission for this detected mapping"
+        return catalogue.hasSavedPermission ? "Open this saved catalogue" : "Grant macOS permission for this detected catalogue"
     }
 
     private var openTitle: String {
@@ -441,7 +442,7 @@ private struct SavedCatalogueRow: View {
             }
             let names = catalogue.sourceList.map(\.name).prefix(2).joined(separator: ", ")
             let more = count > 2 ? " and \(count - 2) more" : ""
-            return "\(count) folder\(count == 1 ? "" : "s"): \(names)\(more)"
+            return "\(count) imported folder\(count == 1 ? "" : "s"): \(names)\(more)"
         }
         return catalogue.path
     }

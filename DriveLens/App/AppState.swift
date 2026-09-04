@@ -204,7 +204,7 @@ final class AppState: ObservableObject {
             refreshSavedCatalogues()
         } catch {
             ssdStatus = .permissionLost
-            userMessage = "DriveLens needs permission to access your media folder again."
+            userMessage = "DriveLens needs permission to access this media folder again. Choose the folder to continue."
         }
     }
 
@@ -223,8 +223,8 @@ final class AppState: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
         panel.directoryURL = initialDirectory
-        panel.prompt = "Choose SSD Folder"
-        panel.message = "Choose the folder that contains your photographs and videos."
+        panel.prompt = "Choose Media Folder"
+        panel.message = "Choose the folder that contains your photos and videos. Original files stay in place."
 
         guard panel.runModal() == .OK, let url = panel.url else {
             return
@@ -266,7 +266,7 @@ final class AppState: ObservableObject {
             hasCompletedOnboarding = true
             refreshSavedCatalogues()
             if showsCreationMessage {
-                userMessage = "Created \(catalogue.name). Add folders to start indexing media."
+                userMessage = "Created \(catalogue.name). Add folders to start indexing photos and videos."
             }
             return true
         } catch {
@@ -281,7 +281,7 @@ final class AppState: ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.canCreateDirectories = false
-        panel.message = "Choose one or more photo or video folders. DriveLens will store its private catalogue in a hidden .drivelens folder at the storage root."
+        panel.message = "Choose one or more photo or video folders. DriveLens stores catalogue data in .drivelens at the storage root."
         panel.prompt = "Create Catalogue"
 
         guard panel.runModal() == .OK else { return }
@@ -318,7 +318,7 @@ final class AppState: ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.canCreateDirectories = false
-        panel.message = "Choose one or more folders to import into \(catalogue.name)."
+        panel.message = "Choose one or more folders to add to \(catalogue.name). DriveLens will index them in this catalogue only."
         panel.prompt = "Add Folders"
 
         guard panel.runModal() == .OK else { return }
@@ -335,7 +335,7 @@ final class AppState: ObservableObject {
         panel.allowsMultipleSelection = true
         panel.canCreateDirectories = false
         panel.directoryURL = legacyRootURL
-        panel.message = "Choose folders to combine with \(legacyCatalogue.name). DriveLens will create a private multi-folder catalogue. Original media and the old catalogue are not touched."
+        panel.message = "Choose folders to combine with \(legacyCatalogue.name). DriveLens will create a private multi-folder catalogue. Original photos and videos are not changed."
         panel.prompt = "Create Multi-Folder Catalogue"
 
         guard panel.runModal() == .OK else { return }
@@ -360,7 +360,7 @@ final class AppState: ObservableObject {
 
     private func addFolderURLsToCurrentCatalogue(_ urls: [URL]) async {
         guard let catalogue = activeCatalogue, catalogue.isNamedCatalogue else {
-            userMessage = "Open or create a named catalogue before adding folders."
+            userMessage = "Open or create a catalogue before adding folders."
             return
         }
 
@@ -415,9 +415,9 @@ final class AppState: ObservableObject {
             return
         }
         let resolvedID = catalogue.id
+        let wasActive = activeCatalogue?.id == resolvedID || activeCatalogue?.path == id
 
         do {
-            let wasActive = activeCatalogue?.id == resolvedID || activeCatalogue?.path == id
             if wasActive {
                 database = nil
             }
@@ -434,12 +434,16 @@ final class AppState: ObservableObject {
                 await refreshAppStorageReport()
             }
 
-            userMessage = "Deleted \(catalogue.name) catalogue data. Originals were not touched."
+            userMessage = "Deleted \(catalogue.name) catalogue data. Original photos and videos were not changed."
         } catch {
+            if await deleteNamedCatalogueAfterChoosingCataloguesFolder(catalogue, wasActive: wasActive, originalError: error) {
+                return
+            }
+
             if activeCatalogue?.id == resolvedID {
                 try? openCatalogue(catalogue)
             }
-            userMessage = "Could not delete catalogue: \(error.localizedDescription)"
+            userMessage = "Could not delete catalogue data: \(error.localizedDescription)"
         }
     }
 
@@ -451,6 +455,99 @@ final class AppState: ObservableObject {
         return nil
     }
 
+    private func deleteNamedCatalogueAfterChoosingCataloguesFolder(
+        _ catalogue: SavedCatalogue,
+        wasActive: Bool,
+        originalError: Error
+    ) async -> Bool {
+        guard catalogue.isNamedCatalogue else { return false }
+
+        let expectedCataloguesURL = URL(fileURLWithPath: catalogue.path, isDirectory: true)
+            .standardizedFileURL
+            .deletingLastPathComponent()
+
+        guard expectedCataloguesURL.lastPathComponent == "catalogues" else {
+            return false
+        }
+
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.showsHiddenFiles = true
+        panel.directoryURL = expectedCataloguesURL.deletingLastPathComponent()
+        panel.prompt = "Allow Deletion"
+        panel.message = "Select the .drivelens/catalogues folder so DriveLens can delete only \(catalogue.id). Original photos and videos are not changed."
+
+        guard panel.runModal() == .OK, let selectedURL = panel.url?.standardizedFileURL else {
+            if wasActive {
+                try? openCatalogue(catalogue)
+            }
+            userMessage = "Delete cancelled. DriveLens needs permission for the .drivelens/catalogues folder."
+            return true
+        }
+
+        let selectedCataloguesURL = cataloguesDirectoryURL(fromDeletePermissionSelection: selectedURL)
+        guard selectedCataloguesURL.path == expectedCataloguesURL.path else {
+            if wasActive {
+                try? openCatalogue(catalogue)
+            }
+            userMessage = "Choose the matching .drivelens/catalogues folder for this catalogue."
+            return true
+        }
+
+        let didStartAccessing = selectedURL.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                selectedURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let targetURL = selectedCataloguesURL.appendingPathComponent(catalogue.id, isDirectory: true)
+        do {
+            if FileManager.default.fileExists(atPath: targetURL.path) {
+                try FileManager.default.removeItem(at: targetURL)
+            }
+
+            bookmarkStore.removeSavedCatalogue(id: catalogue.id)
+            refreshSavedCatalogues()
+
+            if wasActive {
+                resetMediaFolderSelection()
+                refreshSavedCatalogues()
+            } else {
+                await refreshAppStorageReport()
+            }
+
+            userMessage = "Deleted \(catalogue.name) catalogue data. Original photos and videos were not changed."
+            return true
+        } catch {
+            if wasActive {
+                try? openCatalogue(catalogue)
+            }
+            userMessage = "Could not delete catalogue data after permission was granted: \(error.localizedDescription). Earlier macOS message: \(originalError.localizedDescription)"
+            return true
+        }
+    }
+
+    private func cataloguesDirectoryURL(fromDeletePermissionSelection selectedURL: URL) -> URL {
+        let standardizedURL = selectedURL.standardizedFileURL
+        if standardizedURL.lastPathComponent == "catalogues" {
+            return standardizedURL
+        }
+        if standardizedURL.lastPathComponent == ".drivelens" {
+            return standardizedURL
+                .appendingPathComponent("catalogues", isDirectory: true)
+                .standardizedFileURL
+        }
+
+        return standardizedURL
+            .appendingPathComponent(".drivelens", isDirectory: true)
+            .appendingPathComponent("catalogues", isDirectory: true)
+            .standardizedFileURL
+    }
+
     func moveCatalogueToStorageRoot(id: SavedCatalogue.ID) async {
         guard var catalogue = bookmarkStore.savedCatalogue(id: id), catalogue.isNamedCatalogue else {
             userMessage = "Choose a named catalogue to move."
@@ -458,7 +555,7 @@ final class AppState: ObservableObject {
         }
 
         guard let storageRootURL = await storageRootForCatalogue(for: catalogue.sourceList.map(\.rootURL)) else {
-            userMessage = "Connect a writable imported storage volume before moving catalogue storage."
+            userMessage = "Connect a writable imported storage device before moving catalogue storage."
             return
         }
 
@@ -470,7 +567,7 @@ final class AppState: ObservableObject {
         let sourceRootURL = URL(fileURLWithPath: catalogue.path, isDirectory: true).standardizedFileURL
 
         guard sourceRootURL.path != destinationRootURL.path else {
-            userMessage = "\(catalogue.name) is already stored with its media."
+            userMessage = "\(catalogue.name) is already stored at the media storage root."
             return
         }
 
@@ -508,6 +605,11 @@ final class AppState: ObservableObject {
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
+            catalogue.cataloguesDirectoryBookmarkData = try? destinationRootURL.deletingLastPathComponent().bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
             bookmarkStore.saveCatalogue(catalogue)
             refreshSavedCatalogues()
 
@@ -523,7 +625,7 @@ final class AppState: ObservableObject {
             }
 
             await refreshAppStorageReport()
-            userMessage = "Moved \(catalogue.name) catalogue data to \(storageRootURL.lastPathComponent)/.drivelens. Your Mac now keeps only the saved pointer."
+            userMessage = "Moved \(catalogue.name) catalogue data to \(storageRootURL.lastPathComponent)/.drivelens. This Mac now keeps only the saved pointer."
         } catch {
             if wasActive {
                 try? openCatalogue(catalogue)
@@ -547,7 +649,7 @@ final class AppState: ObservableObject {
                 refreshSavedCatalogues()
             } catch {
                 ssdStatus = .permissionLost
-                userMessage = "Could not open that catalogue. Reconnect its folders or add them again."
+                userMessage = "Could not open that catalogue. Connect the storage device or add the folders again."
             }
             return
         }
@@ -585,13 +687,14 @@ final class AppState: ObservableObject {
             refreshSavedCatalogues()
         } catch {
             ssdStatus = .permissionLost
-            userMessage = "Could not open that saved catalogue. Choose the folder again to refresh permission."
+            userMessage = "Could not open that saved catalogue. Choose the folder again to refresh macOS permission."
         }
     }
 
     func forgetSavedCatalogue(_ catalogue: SavedCatalogue) {
         bookmarkStore.removeSavedCatalogue(id: catalogue.id)
         refreshSavedCatalogues()
+        userMessage = "Removed the saved pointer for \(catalogue.name). Catalogue data and original photos and videos were not changed."
     }
 
     func buildCatalogue() async {
@@ -612,7 +715,7 @@ final class AppState: ObservableObject {
         }
 
         guard let rootURL = selectedRootURL else {
-            userMessage = "Choose a media folder before updating folders."
+            userMessage = "Open a catalogue before updating folders."
             return
         }
 
@@ -633,7 +736,7 @@ final class AppState: ObservableObject {
         }
 
         guard !validFolders.isEmpty else {
-            userMessage = "Choose folders inside the active media folder."
+            userMessage = "Choose folders inside the active imported folder."
             return
         }
 
@@ -748,7 +851,7 @@ final class AppState: ObservableObject {
 
     func repairMissingFiles(candidate: MissingFolderRepairCandidate, replacementFolderURL: URL) async {
         guard let database else {
-            userMessage = "Choose a media folder before repairing missing files."
+            userMessage = "Open a catalogue before repairing missing files."
             return
         }
 
@@ -1184,7 +1287,7 @@ final class AppState: ObservableObject {
             ssdStatus = activeMediaSources.isEmpty || activeMediaSources.contains { $0.rootURL.isReachableDirectory } ? .connected : .disconnected
         } catch {
             ssdStatus = .catalogueCorrupted
-            userMessage = "The catalogue could not be read. Your originals were not touched."
+            userMessage = "The catalogue could not be read. Original photos and videos were not changed."
         }
     }
 
@@ -1756,7 +1859,7 @@ final class AppState: ObservableObject {
             )
             mediaMutationRevision += 1
             await loadTimeline()
-            userMessage = "Updated location for \(itemIDs.count) item\(itemIDs.count == 1 ? "" : "s")."
+            userMessage = "Set location for \(itemIDs.count) item\(itemIDs.count == 1 ? "" : "s")."
         } catch {
             userMessage = "Could not update location: \(error.localizedDescription)"
         }
@@ -1842,9 +1945,9 @@ final class AppState: ObservableObject {
     private static func missingRepairMessage(result: MissingFileRepairResult, folderName: String) -> String {
         if result.repairedCount == 0 {
             if result.matchedCount == 0 {
-                return "No matching files were found for \(folderName). Choose the folder that now contains the same files."
+                return "No matching files were found for \(folderName). Choose the folder that contains those originals now."
             }
-            return "Found \(result.matchedCount) matching file\(result.matchedCount == 1 ? "" : "s"), but none could be remapped because catalogue paths already exist."
+            return "Found \(result.matchedCount) matching file\(result.matchedCount == 1 ? "" : "s"), but DriveLens could not remap them because those catalogue paths already exist."
         }
 
         var message = "Repaired \(result.repairedCount) missing file\(result.repairedCount == 1 ? "" : "s") in \(folderName)."
@@ -2009,7 +2112,7 @@ final class AppState: ObservableObject {
 
     func deleteMediaItem(_ item: MediaItem) async {
         guard let fileURL = mediaURL(for: item), let database else {
-            userMessage = "Choose a media folder before deleting an item."
+            userMessage = "Open a catalogue before moving an item to Trash."
             pendingDeleteItem = nil
             return
         }
@@ -2042,13 +2145,13 @@ final class AppState: ObservableObject {
                 : "Removed missing item from the catalogue."
         } catch {
             pendingDeleteItem = nil
-            userMessage = "Could not delete \(item.filename): \(error.localizedDescription)"
+            userMessage = "Could not move \(item.filename) to Trash: \(error.localizedDescription)"
         }
     }
 
     func deleteMediaItems(_ items: [MediaItem]) async {
         guard let database else {
-            userMessage = "Choose a media folder before deleting items."
+            userMessage = "Open a catalogue before moving items to Trash."
             pendingBatchDeleteItems = []
             return
         }
@@ -2106,7 +2209,7 @@ final class AppState: ObservableObject {
     func copyMediaItems(_ items: [MediaItem]) {
         guard !items.isEmpty else { return }
         guard !activeMediaSources.isEmpty else {
-            userMessage = "Choose a media folder before copying items."
+            userMessage = "Open a catalogue before copying originals."
             return
         }
 
@@ -2153,7 +2256,7 @@ final class AppState: ObservableObject {
 
     func renameMediaItems(_ items: [MediaItem], baseName rawBaseName: String) async {
         guard let database else {
-            userMessage = "Choose a media folder before renaming items."
+            userMessage = "Open a catalogue before renaming originals."
             showingRenameSheet = false
             renameItems = []
             return
@@ -2161,7 +2264,7 @@ final class AppState: ObservableObject {
 
         let baseName = sanitizedFileStem(rawBaseName)
         guard !baseName.isEmpty else {
-            userMessage = "Enter a valid name before renaming."
+            userMessage = "Enter a valid file name before renaming."
             return
         }
 
@@ -2201,7 +2304,7 @@ final class AppState: ObservableObject {
             guard !plans.isEmpty else {
                 showingRenameSheet = false
                 renameItems = []
-                userMessage = "Nothing to rename."
+                userMessage = "No files were renamed because the names are already current."
                 return
             }
 
@@ -2233,7 +2336,7 @@ final class AppState: ObservableObject {
             mediaMutationRevision += 1
             await loadTimeline()
             selectedMediaItem = visibleItemsForSelection().first
-            userMessage = "Renamed \(plans.count) item\(plans.count == 1 ? "" : "s")."
+            userMessage = "Renamed \(plans.count) original file\(plans.count == 1 ? "" : "s") and updated the catalogue."
         } catch {
             userMessage = error.localizedDescription
         }
@@ -2241,7 +2344,7 @@ final class AppState: ObservableObject {
 
     func findDuplicates() async {
         guard let database else {
-            userMessage = "Choose a media folder before finding duplicates."
+            userMessage = "Open a catalogue before finding duplicates."
             return
         }
 
@@ -2293,9 +2396,9 @@ final class AppState: ObservableObject {
             )
 
             if duplicateGroups.isEmpty {
-                userMessage = "No exact duplicates found. Checked \(hashedCount) candidate item\(hashedCount == 1 ? "" : "s")."
+                userMessage = "No exact duplicates found. Checked \(hashedCount) candidate item\(hashedCount == 1 ? "" : "s") by content hash."
             } else {
-                var message = "Found \(duplicateGroups.count) duplicate group\(duplicateGroups.count == 1 ? "" : "s") with about \(reclaimable) recoverable."
+                var message = "Found \(duplicateGroups.count) exact duplicate group\(duplicateGroups.count == 1 ? "" : "s") with about \(reclaimable) recoverable."
                 if missingCount > 0 || failedCount > 0 {
                     message += " \(missingCount) missing and \(failedCount) failed."
                 }
@@ -2337,7 +2440,7 @@ final class AppState: ObservableObject {
     func mergeAllDuplicateGroups() {
         let items = duplicateGroups.flatMap(\.duplicateItems)
         guard !items.isEmpty else {
-            userMessage = "No duplicate copies to merge."
+            userMessage = "No duplicate copies are available to merge."
             return
         }
 
@@ -2371,7 +2474,7 @@ final class AppState: ObservableObject {
 
     func revealActiveCatalogueFolder() {
         guard let catalogueURL else {
-            userMessage = "Choose a media folder before revealing catalogue storage."
+            userMessage = "Open a catalogue before revealing catalogue storage."
             return
         }
 
@@ -2381,7 +2484,7 @@ final class AppState: ObservableObject {
 
     func clearActiveThumbnailCaches() async {
         guard let catalogueRootURL else {
-            userMessage = "Choose a media folder before clearing thumbnail caches."
+            userMessage = "Open a catalogue before clearing thumbnail caches."
             return
         }
 
@@ -2400,7 +2503,7 @@ final class AppState: ObservableObject {
             try manager.createDirectory(at: paths.thumbnailsDirectory, withIntermediateDirectories: true)
             try manager.createDirectory(at: paths.videoThumbnailsDirectory, withIntermediateDirectories: true)
             await refreshAppStorageReport()
-            userMessage = "Thumbnail cache cleared. Run Update Catalogue to rebuild generated previews."
+            userMessage = "Cleared generated thumbnails. Run Update Catalogue to rebuild previews."
         } catch {
             userMessage = "Could not clear thumbnail cache: \(error.localizedDescription)"
         }
@@ -2408,7 +2511,7 @@ final class AppState: ObservableObject {
 
     func compactActiveCatalogueDatabase() async {
         guard let database else {
-            userMessage = "Choose a media folder before compacting the catalogue database."
+            userMessage = "Open a catalogue before compacting the catalogue database."
             return
         }
 
@@ -2418,7 +2521,7 @@ final class AppState: ObservableObject {
         do {
             try database.compact()
             await refreshAppStorageReport()
-            userMessage = "Catalogue database compacted."
+            userMessage = "Compacted the catalogue database."
         } catch {
             userMessage = "Could not compact catalogue database: \(error.localizedDescription)"
         }
@@ -2618,7 +2721,7 @@ final class AppState: ObservableObject {
         panel.canCreateDirectories = false
         panel.directoryURL = rootURL
         panel.prompt = "Allow Storage Root"
-        panel.message = "Select the root of (rootURL.lastPathComponent) so DriveLens can create .drivelens there."
+        panel.message = "Select the root of \(rootURL.lastPathComponent) so DriveLens can create .drivelens there."
 
         guard panel.runModal() == .OK, let selectedURL = panel.url?.standardizedFileURL else {
             return nil
@@ -2631,7 +2734,7 @@ final class AppState: ObservableObject {
         }
 
         guard selectedRootURL.canHostDriveLensRootCatalogue else {
-            userMessage = "DriveLens could not write to (selectedRootURL.lastPathComponent). Check drive permissions and try again."
+            userMessage = "DriveLens could not write to \(selectedRootURL.lastPathComponent). Check drive permissions and try again."
             return nil
         }
 
@@ -2965,7 +3068,7 @@ final class AppState: ObservableObject {
     }
 
     private func beginAccessingCatalogueStorage(_ catalogue: SavedCatalogue) {
-        guard let bookmarkData = catalogue.bookmarkData else { return }
+        guard let bookmarkData = catalogue.cataloguesDirectoryBookmarkData ?? catalogue.bookmarkData else { return }
         var stale = false
         guard let url = try? URL(
             resolvingBookmarkData: bookmarkData,
@@ -3042,9 +3145,9 @@ enum SSDStatus: Equatable {
 
     var title: String {
         switch self {
-        case .notSelected: "No SSD selected"
-        case .connected: "SSD connected"
-        case .disconnected: "SSD disconnected"
+        case .notSelected: "No catalogue selected"
+        case .connected: "Storage connected"
+        case .disconnected: "Storage disconnected"
         case .permissionLost: "Permission needed"
         case .catalogueCorrupted: "Catalogue problem"
         }
@@ -3100,11 +3203,11 @@ enum BatchDeleteContext: Equatable {
     func message(count: Int) -> String {
         switch self {
         case .selection:
-            return "This moves the selected originals to the macOS Trash and removes them from the DriveLens catalogue."
+            return "This moves the selected original files to the macOS Trash and removes their records from the DriveLens catalogue."
         case .duplicateGroup:
-            return "DriveLens will keep the suggested or chosen original and move \(count) duplicate cop\(count == 1 ? "y" : "ies") to the macOS Trash."
+            return "DriveLens will keep the suggested or chosen original file and move \(count) duplicate cop\(count == 1 ? "y" : "ies") to the macOS Trash."
         case .allDuplicates:
-            return "DriveLens will keep one suggested original from each duplicate group and move \(count) duplicate cop\(count == 1 ? "y" : "ies") to the macOS Trash."
+            return "DriveLens will keep one suggested original file from each duplicate group and move \(count) duplicate cop\(count == 1 ? "y" : "ies") to the macOS Trash."
         }
     }
 }
@@ -3156,7 +3259,7 @@ private extension URL {
     var canHostDriveLensRootCatalogue: Bool {
         guard isReachableDirectory else { return false }
         let probeDirectory = appendingPathComponent(".drivelens", isDirectory: true)
-            .appendingPathComponent(".write-check-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(".write-check-\(UUID().uuidString)", isDirectory: true)
         do {
             try FileManager.default.createDirectory(
                 at: probeDirectory,

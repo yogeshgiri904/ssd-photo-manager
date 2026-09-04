@@ -37,7 +37,7 @@ struct DriveLensApp: App {
 
                 Divider()
 
-                Button("Switch Catalogue") {
+                Button("Choose Catalogue...") {
                     appState.requestMediaFolderReset()
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
@@ -65,7 +65,7 @@ struct DriveLensApp: App {
 
                 Divider()
 
-                Button("Show Inspector") {
+                Button(appState.showingInspector ? "Hide Inspector" : "Show Inspector") {
                     appState.showingInspector.toggle()
                 }
                 .keyboardShortcut("i", modifiers: [.command, .option])

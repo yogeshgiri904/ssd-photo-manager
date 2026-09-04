@@ -49,15 +49,15 @@ struct RootView: View {
                 .frame(width: 680, height: 520)
         }
         .confirmationDialog(
-            "Choose a different media folder?",
+            "Choose folders again?",
             isPresented: $appState.showingResetConfirmation
         ) {
-            Button("Return to Onboarding") {
+            Button("Choose Folders") {
                 appState.resetMediaFolderSelection()
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("DriveLens will forget the saved folder permission and clear the current view. Your media and existing catalogue files are not deleted.")
+            Text("DriveLens will close the current view and return to folder selection. Existing catalogue data and original photos and videos are not changed.")
         }
         .confirmationDialog(
             "Update catalogue?",
@@ -69,7 +69,7 @@ struct RootView: View {
             .disabled(!appState.canScan)
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("DriveLens will rescan the selected folder and refresh changed, new, and missing media. Your originals will not be modified.")
+            Text("DriveLens will scan the imported folders again and refresh new, changed, already indexed, and missing items. Original photos and videos are not changed.")
         }
         .confirmationDialog(
             "Move item to Trash?",
@@ -83,7 +83,7 @@ struct RootView: View {
                 appState.pendingDeleteItem = nil
             }
         } message: { item in
-            Text("This moves \(item.filename) to the macOS Trash and removes it from the DriveLens catalogue.")
+            Text("This moves \(item.filename) to the macOS Trash and removes its record from the DriveLens catalogue.")
         }
         .confirmationDialog(
             batchDeleteDialogTitle,
@@ -211,19 +211,21 @@ struct RootView: View {
                         }
                         .disabled(!appState.canRepairMissingFiles)
                     } label: {
-                        Label("Catalogue Actions", systemImage: "arrow.triangle.2.circlepath")
+                        Label("Catalogue", systemImage: "rectangle.stack")
                     }
                     .labelStyle(.iconOnly)
-                    .help("Catalogue Actions")
+                    .help("Catalogue actions")
+                    .accessibilityLabel("Catalogue actions")
 
                     if appState.selectedSection != .appInfo {
                         Button {
                             appState.showingInspector.toggle()
                         } label: {
-                            Label("Inspector", systemImage: appState.showingInspector ? "sidebar.trailing" : "sidebar.right")
+                            Label(appState.showingInspector ? "Hide Inspector" : "Show Inspector", systemImage: appState.showingInspector ? "sidebar.trailing" : "sidebar.right")
                         }
                         .labelStyle(.iconOnly)
                         .help(appState.showingInspector ? "Hide Inspector" : "Show Inspector")
+                        .accessibilityLabel(appState.showingInspector ? "Hide Inspector" : "Show Inspector")
                     }
                 }
 
@@ -231,7 +233,7 @@ struct RootView: View {
                     TextField("Search", text: $appState.searchText)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 240)
-                        .accessibilityLabel("Search metadata")
+                        .accessibilityLabel("Search catalogue")
                         .onSubmit {
                             appState.select(.search)
                             appState.refreshSearchResultCount()
@@ -677,7 +679,7 @@ private struct SidebarFooter: View {
                 .buttonStyle(.borderless)
                 .controlSize(.small)
                 .padding(.top, 4)
-                .help("Return to onboarding and open or create a catalogue")
+                .help("Choose, open, or create a catalogue")
             }
         }
         .padding(12)
@@ -739,15 +741,15 @@ private struct StatusBanner: View {
     private var message: String {
         switch status {
         case .disconnected:
-            return "SSD disconnected. Reconnect it to continue viewing originals."
+            return "Connect the storage device to continue viewing originals."
         case .permissionLost:
-            return "Folder permission was lost. Choose the media folder again to continue."
+            return "DriveLens needs folder permission again. Choose the media folder to continue."
         case .catalogueCorrupted:
-            return "The catalogue could not be read. Originals were not touched."
+            return "The catalogue could not be read. Original photos and videos were not changed."
         case .notSelected:
-            return "Choose a media folder to start."
+            return "Choose folders to create or open a catalogue."
         case .connected:
-            return "SSD connected."
+            return "Storage connected."
         }
     }
 }

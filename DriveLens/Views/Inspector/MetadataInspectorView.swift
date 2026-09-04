@@ -13,7 +13,7 @@ struct MetadataInspectorView: View {
             isEmpty: item == nil && selectedItems.count < 2,
             emptyTitle: "No Selection",
             emptySystemImage: "sidebar.right",
-            emptyMessage: "Select a thumbnail to inspect metadata and manage the original file."
+            emptyMessage: "Select a thumbnail to inspect metadata, preview media, or manage the original file."
         ) {
             if selectedItems.count > 1 {
                 BatchMetadataPanel(items: selectedItems)
@@ -169,7 +169,8 @@ private struct MediaInspectorSummary: View {
             .onTapGesture {
                 appState.viewInViewer(item)
             }
-            .accessibilityHint("Click to view in preview")
+            .accessibilityLabel("Preview \(item.filename)")
+            .accessibilityHint("Opens this item in the viewer.")
 
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 6) {
@@ -233,7 +234,7 @@ private struct InspectorActionBar: View {
             .buttonStyle(.borderedProminent)
             .labelStyle(.titleAndIcon)
             .controlSize(.small)
-            .help("View in preview")
+            .help("Open in viewer")
 
             Spacer(minLength: 0)
 
@@ -255,12 +256,13 @@ private struct InspectorActionBar: View {
             Button(role: .destructive) {
                 appState.requestDelete(item)
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Move to Trash", systemImage: "trash")
             }
             .buttonStyle(.bordered)
             .labelStyle(.iconOnly)
             .controlSize(.small)
             .help("Move to Trash")
+            .accessibilityLabel("Move to Trash")
         }
     }
 
@@ -275,19 +277,20 @@ private struct InspectorActionBar: View {
                 .buttonStyle(.borderedProminent)
                 .labelStyle(.titleAndIcon)
                 .controlSize(.small)
-                .help("View in preview")
+                .help("Open in viewer")
 
                 Spacer(minLength: 0)
 
                 Button(role: .destructive) {
                     appState.requestDelete(item)
                 } label: {
-                    Label("Delete", systemImage: "trash")
+                    Label("Move to Trash", systemImage: "trash")
                 }
                 .buttonStyle(.bordered)
                 .labelStyle(.iconOnly)
                 .controlSize(.small)
                 .help("Move to Trash")
+                .accessibilityLabel("Move to Trash")
             }
 
             HStack(spacing: 7) {
@@ -417,7 +420,7 @@ private struct BatchMetadataPanel: View {
                     Button {
                         Task { await appState.setFavorite(true, for: items) }
                     } label: {
-                        Label("Mark", systemImage: "heart.fill")
+                        Label("Mark Favorite", systemImage: "heart.fill")
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
@@ -425,7 +428,7 @@ private struct BatchMetadataPanel: View {
                     Button {
                         Task { await appState.setFavorite(false, for: items) }
                     } label: {
-                        Label("Remove", systemImage: "heart.slash")
+                        Label("Remove Favorite", systemImage: "heart.slash")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)

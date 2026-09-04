@@ -31,35 +31,17 @@ struct AsyncThumbnailView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let size = min(geometry.size.width, geometry.size.height)
+            let size = floor(min(geometry.size.width, geometry.size.height))
 
-            ZStack(alignment: .bottomTrailing) {
+            ZStack {
                 thumbnailContent(size: size)
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
 
-                if showsBadge {
-                    badge
-                        .padding(6)
-                }
+                mediaBadges(size: size)
 
                 if showsHoverOverlay && isHovered {
-                    VStack {
-                        HStack {
-                            Text(item.filename)
-                                .font(.caption2.weight(.medium))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                                .frame(maxWidth: max(44, size - 12), alignment: .leading)
-                                .background(.black.opacity(0.48), in: RoundedRectangle(cornerRadius: 5))
-                            Spacer(minLength: 0)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(6)
+                    hoverLabel(size: size)
                     .transition(.opacity)
                 }
 
@@ -81,6 +63,13 @@ struct AsyncThumbnailView: View {
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .strokeBorder(borderColor, lineWidth: borderWidth)
+            }
+            .overlay {
+                if showsSelection && isPrimarySelected && !isBatchSelected {
+                    RoundedRectangle(cornerRadius: cornerRadius - 1)
+                        .strokeBorder(Color.accentColor.opacity(0.65), lineWidth: 1)
+                        .padding(3)
+                }
             }
             .animation(.easeOut(duration: 0.12), value: isHovered)
             .animation(.easeOut(duration: 0.12), value: isPrimarySelected)
@@ -145,12 +134,16 @@ struct AsyncThumbnailView: View {
                     .scaledToFill()
                     .frame(width: size, height: size)
                     .clipped()
+                    .saturation(item.isMissing ? 0.15 : 1)
+                    .opacity(item.isMissing ? 0.45 : 1)
             } else {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
                     .frame(width: size, height: size)
                     .background(Color(nsColor: .underPageBackgroundColor))
+                    .saturation(item.isMissing ? 0.15 : 1)
+                    .opacity(item.isMissing ? 0.45 : 1)
             }
         } else {
             Rectangle()
@@ -169,14 +162,75 @@ struct AsyncThumbnailView: View {
     }
 
     @ViewBuilder
-    private var badge: some View {
-        if item.kind == .video {
-            Text(durationText)
-                .font(.caption2.weight(.semibold))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(.thinMaterial, in: Capsule())
+    private func mediaBadges(size: CGFloat) -> some View {
+        VStack {
+            HStack(alignment: .top, spacing: 6) {
+                if item.isMissing {
+                    statusBadge(title: "Missing", systemImage: "exclamationmark.triangle.fill")
+                } else if item.isFavorite {
+                    Image(systemName: "heart.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(.black.opacity(0.48), in: Circle())
+                        .accessibilityLabel("Favorite")
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack {
+                Spacer(minLength: 0)
+                if showsBadge && item.kind == .video {
+                    Text(durationText)
+                        .font(.caption2.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(.black.opacity(0.52), in: Capsule())
+                        .accessibilityLabel("Video duration \(durationText)")
+                }
+            }
         }
+        .padding(6)
+        .frame(width: size, height: size)
+        .clipped()
+    }
+
+    private func hoverLabel(size: CGFloat) -> some View {
+        VStack {
+            Spacer(minLength: 0)
+            HStack {
+                Text(item.filename)
+                    .font(.caption2.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: max(44, size - 12), alignment: .leading)
+                    .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 5))
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(6)
+        .frame(width: size, height: size)
+        .clipped()
+    }
+
+    private func statusBadge(title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(.red.opacity(0.82), in: Capsule())
     }
 
     private var durationText: String {

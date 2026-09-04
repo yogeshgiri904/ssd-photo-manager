@@ -25,7 +25,7 @@ struct PlacesView: View {
                     ContentUnavailableView {
                         Label("No GPS information", systemImage: "map")
                     } description: {
-                        Text("Timeline and Folders still include every indexed item.")
+                        Text("No indexed media has GPS metadata yet. Timeline and Folders still include every item.")
                     } actions: {
                         Button {
                             appState.requestCatalogueUpdate()
@@ -85,6 +85,7 @@ struct PlacesView: View {
                         .buttonStyle(.borderless)
                         .controlSize(.small)
                         .help("Show all mapped media")
+                        .accessibilityLabel("Show all mapped media")
                     }
                 }
                 .padding(.horizontal, 12)
@@ -211,7 +212,7 @@ private struct PlacesHeader: View {
         VStack(alignment: .leading, spacing: 4) {
             Label("Places", systemImage: "map")
                 .font(.title2.weight(.semibold))
-            Text(locatedCount == 0 ? "No mapped media yet" : "\(clusterCount) location clusters")
+            Text(locatedCount == 0 ? "No mapped media yet" : "\(clusterCount) location cluster\(clusterCount == 1 ? "" : "s")")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -227,6 +228,7 @@ private struct PlacesHeader: View {
         .controlSize(.small)
         .disabled(locatedCount == 0)
         .help("Zoom map to all mapped media")
+        .accessibilityLabel("Zoom map to media")
     }
 
     private var metrics: some View {

@@ -39,7 +39,7 @@ struct FoldersView: View {
                     ContentUnavailableView {
                         Label("No folders yet", systemImage: "folder")
                     } description: {
-                        Text("Build the catalogue to browse the SSD folder structure.")
+                        Text("Update the catalogue to browse imported folder structure.")
                     } actions: {
                         Button {
                             appState.requestCatalogueUpdate()
@@ -71,6 +71,7 @@ struct FoldersView: View {
                         ProgressView("Loading Folder")
                             .padding(14)
                             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            .accessibilityLabel("Loading folder")
                     }
                 }
             }
@@ -161,6 +162,7 @@ struct FoldersView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 260)
+            .accessibilityLabel("Sort folders")
         } else {
             Button {
                 self.selectedFolderPath = nil
@@ -175,9 +177,10 @@ struct FoldersView: View {
 
     private var folderSubtitle: String {
         if selectedFolderPath != nil {
-            return "\(selectedFolderSummary?.itemCount ?? selectedFolderItems.count) items in this folder"
+            let count = selectedFolderSummary?.itemCount ?? selectedFolderItems.count
+            return "\(count) item\(count == 1 ? "" : "s") in this folder"
         }
-        return "\(sortedFolders.count) folders in this catalogue"
+        return "\(sortedFolders.count) folder\(sortedFolders.count == 1 ? "" : "s") in this catalogue"
     }
 
     private func reveal(_ folder: FolderCatalogueSummary) {
@@ -218,7 +221,7 @@ private struct FolderRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(folder.name)
                     .font(.callout.weight(.semibold))
-                Text(folder.path.isEmpty ? "Selected media folder" : folder.path)
+                Text(folder.path.isEmpty ? "Imported media folder" : folder.path)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -228,10 +231,10 @@ private struct FolderRow: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 3) {
-                Text("\(folder.itemCount) items")
+                Text("\(folder.itemCount) item\(folder.itemCount == 1 ? "" : "s")")
                     .font(.callout.weight(.semibold))
                     .monospacedDigit()
-                Text("\(folder.photoCount) photos  \(folder.videoCount) videos")
+                Text("\(folder.photoCount) photo\(folder.photoCount == 1 ? "" : "s")  \(folder.videoCount) video\(folder.videoCount == 1 ? "" : "s")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()

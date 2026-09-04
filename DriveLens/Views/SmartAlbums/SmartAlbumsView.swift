@@ -21,7 +21,7 @@ struct SmartAlbumsView: View {
         VStack(spacing: 0) {
             SmartAlbumsHeader(
                 title: "Smart Albums",
-                subtitle: "Auto-created collections from local catalogue metadata",
+                subtitle: "Auto-created groups from local catalogue metadata",
                 count: appState.smartAlbums.filter { !$0.isPlaceholder }.count,
                 action: {
                     Task { await appState.refreshSmartAlbums() }
@@ -70,6 +70,7 @@ struct SmartAlbumsView: View {
                             .controlSize(.large)
                             .padding(18)
                             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            .accessibilityLabel("Loading smart album")
                     }
                 }
             }
@@ -80,7 +81,7 @@ struct SmartAlbumsView: View {
         ContentUnavailableView {
             Label("People", systemImage: "person.2.crop.square.stack")
         } description: {
-            Text("A reserved local grouping space for future face-based organization.")
+            Text("A private placeholder for future people grouping. No face analysis runs today.")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
@@ -144,6 +145,7 @@ private struct SmartAlbumsHeader: View {
         .buttonStyle(.bordered)
         .controlSize(.small)
         .help("Refresh smart albums")
+        .accessibilityLabel("Refresh smart albums")
     }
 }
 
@@ -237,14 +239,14 @@ private struct SmartAlbumCard: View {
 
                 HStack(spacing: 8) {
                     if album.isPlaceholder {
-                        Text("Placeholder")
+                        Text("Coming Later")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(.quaternary.opacity(0.55), in: Capsule())
                     } else {
-                        Text("\(album.itemCount) items")
+                        Text("\(album.itemCount) item\(album.itemCount == 1 ? "" : "s")")
                             .font(.caption.weight(.semibold))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
@@ -268,7 +270,7 @@ private struct SmartAlbumCard: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .accessibilityLabel("\(album.title), \(album.itemCount) items")
+        .accessibilityLabel("\(album.title), \(album.itemCount) item\(album.itemCount == 1 ? "" : "s")")
     }
 
     private var icon: some View {

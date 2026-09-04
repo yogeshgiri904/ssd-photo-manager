@@ -45,17 +45,18 @@ private struct SearchHeader: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
+                    .accessibilityLabel("\(resultCount) search result\(resultCount == 1 ? "" : "s")")
             }
 
             HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Search metadata", text: $appState.searchText)
+                TextField("Search filenames, dates, places, cameras, keywords", text: $appState.searchText)
                     .textFieldStyle(.plain)
                     .font(.title3)
                     .focused($isSearchFocused)
                     .submitLabel(.search)
-                    .accessibilityLabel("Search metadata")
+                    .accessibilityLabel("Search catalogue")
                 if !appState.searchText.isEmpty {
                     Button {
                         appState.searchText = ""
@@ -66,6 +67,7 @@ private struct SearchHeader: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .help("Clear Search")
+                    .accessibilityLabel("Clear search")
                 }
             }
             .padding(.horizontal, 12)
@@ -86,9 +88,10 @@ private struct SearchHeader: View {
                     appState.searchText = ""
                     appState.activeFilters = SearchFilters()
                 } label: {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
+                    Label("Reset Filters", systemImage: "arrow.counterclockwise")
                 }
                 .disabled(appState.searchText.isEmpty && appState.activeFilters == SearchFilters())
+                .help("Reset search and filters")
             }
             .controlSize(.small)
         }

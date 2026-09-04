@@ -118,14 +118,14 @@ struct DuplicatesView: View {
             Task { await appState.findDuplicates() }
         } label: {
             if appState.isFindingDuplicates {
-                Label("Finding", systemImage: "hourglass")
+                Label("Finding Duplicates", systemImage: "hourglass")
             } else {
-                Label("Find", systemImage: "magnifyingglass")
+                Label("Find Duplicates", systemImage: "magnifyingglass")
             }
         }
         .buttonStyle(.borderedProminent)
         .disabled(appState.isFindingDuplicates || !appState.canScan)
-        .help("Find exact duplicates")
+        .help("Find exact duplicate files by content hash")
     }
 
     private var mergeAllButton: some View {
@@ -136,7 +136,7 @@ struct DuplicatesView: View {
         }
         .buttonStyle(.bordered)
         .disabled(appState.duplicateGroups.isEmpty || appState.isFindingDuplicates)
-        .help("Keep the suggested item from every duplicate group and move the extra copies to Trash after confirmation")
+        .help("Keep one suggested original from each duplicate group and move extra copies to Trash after confirmation")
     }
 
     @ViewBuilder
@@ -145,7 +145,7 @@ struct DuplicatesView: View {
             ContentUnavailableView {
                 Label("No Duplicate Groups", systemImage: "rectangle.on.rectangle.slash")
             } description: {
-                Text("Run Find Duplicates to hash same-size files and review exact matches.")
+                Text("Run Find Duplicates to compare same-size files by SHA-256 content hash. Original photos and videos are not changed during the scan.")
             } actions: {
                 Button {
                     Task { await appState.findDuplicates() }
@@ -225,7 +225,7 @@ private struct DuplicateGroupButton: View {
                     .frame(width: 26)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("\(group.items.count) exact copies")
+                    Text("\(group.items.count) exact duplicate\(group.items.count == 1 ? "" : "s")")
                         .font(.callout.weight(.semibold))
                         .lineLimit(1)
                     Text(ByteCountFormatter.string(fromByteCount: group.reclaimableBytes, countStyle: .file) + " recoverable")
@@ -338,7 +338,7 @@ private struct DuplicateGroupDetail: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("\(group.items.count) Exact Duplicates")
                 .font(.title2.weight(.semibold))
-            Text("Same SHA-256 content hash. Suggested keeper is based on quality, metadata, and location.")
+            Text("Same SHA-256 content hash. Suggested keeper is based on quality, metadata, location, and clean filename.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -360,10 +360,11 @@ private struct DuplicateGroupDetail: View {
                 appState.selectedMediaItemIDs = Set(group.duplicateItems.map(\.id))
                 appState.updateVisibleSelectionScope(group.sortedItems)
             } label: {
-                Label("Select Duplicates", systemImage: "checklist.checked")
+                Label("Select Copies", systemImage: "checklist.checked")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .help("Select all copies except the suggested keeper")
         }
     }
 }
@@ -471,6 +472,7 @@ private struct DuplicateItemCard: View {
                 .tint(isSuggestedKeeper ? .accentColor : nil)
                 .controlSize(.small)
                 .disabled(group.items.count < 2)
+                .help("Keep this original and move the other copies to Trash after confirmation")
 
                 Spacer(minLength: 0)
 

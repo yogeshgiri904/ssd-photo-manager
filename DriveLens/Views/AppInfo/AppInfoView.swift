@@ -47,7 +47,7 @@ struct AppInfoView: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("DriveLens will remove generated photo and video thumbnails for the active catalogue. Original media files are not touched. Run Update Catalogue to rebuild previews.")
+            Text("DriveLens will remove generated photo and video thumbnails for the active catalogue. Original photos and videos are not changed. Run Update Catalogue to rebuild previews.")
         }
         .confirmationDialog(
             "Compact catalogue database?",
@@ -58,7 +58,7 @@ struct AppInfoView: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("DriveLens will compact the active SQLite catalogue to reclaim unused database space. Original media files are not touched.")
+            Text("DriveLens will compact the active SQLite catalogue to reclaim unused database space. Original photos and videos are not changed.")
         }
         .sheet(isPresented: renameSheetBinding) {
             CatalogueRenameSheet(
@@ -80,7 +80,7 @@ struct AppInfoView: View {
             .frame(width: 420)
         }
         .confirmationDialog(
-            "Delete catalogue?",
+            "Delete catalogue data?",
             isPresented: $showingDeleteCatalogueConfirmation
         ) {
             Button("Delete Catalogue Data", role: .destructive) {
@@ -153,7 +153,7 @@ struct AppInfoView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("App Info")
                     .font(.system(size: 30, weight: .semibold))
-                Text("Catalogue storage location, mapped folders, and maintenance.")
+                Text("Catalogue storage, mapped folders, permissions, and maintenance.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -183,11 +183,12 @@ struct AppInfoView: View {
             Button {
                 appState.revealActiveCatalogueFolder()
             } label: {
-                Label("Reveal", systemImage: "finder")
+                Label("Reveal Storage", systemImage: "finder")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(report.activeCatalogue == nil)
+            .help("Reveal active catalogue storage in Finder")
         }
     }
 
@@ -196,7 +197,7 @@ struct AppInfoView: View {
             AppInfoMetricTile(title: "Stored on This Mac", value: bytes(report.macResidentBytes), systemImage: "internaldrive")
             AppInfoMetricTile(title: "Stored on Storage Roots", value: bytes(report.mediaStoredBytes), systemImage: "externaldrive")
             AppInfoMetricTile(title: "Catalogue Databases", value: bytes(report.totalDatabaseBytes), systemImage: "cylinder.split.1x2")
-            AppInfoMetricTile(title: "Thumbnail Cache", value: bytes(report.totalThumbnailBytes), systemImage: "photo.stack")
+            AppInfoMetricTile(title: "Generated Thumbnails", value: bytes(report.totalThumbnailBytes), systemImage: "photo.stack")
             AppInfoMetricTile(title: "Catalogues", value: "\(report.mappedCatalogues.count)", systemImage: "rectangle.stack")
         }
     }
@@ -245,7 +246,7 @@ struct AppInfoView: View {
     private func activeCatalogueSubtitle(_ catalogue: CatalogueStorageSnapshot) -> String {
         guard catalogue.isNamedCatalogue else { return catalogue.path }
         let folderText = catalogue.sourceCount == 1 ? "1 imported folder" : "\(catalogue.sourceCount) imported folders"
-        let storageText = catalogue.isStoredOnMac ? "stored on this Mac" : "stored in .drivelens at storage root"
+        let storageText = catalogue.isStoredOnMac ? "stored on this Mac" : "stored in .drivelens at the storage root"
         return "\(folderText) • \(storageText) • \(catalogue.path)"
     }
 
@@ -288,7 +289,7 @@ struct AppInfoView: View {
                 ContentUnavailableView {
                     Label("No Catalogues", systemImage: "rectangle.stack.badge.questionmark")
                 } description: {
-                    Text("Choose media folders to create the first storage-root catalogue.")
+                    Text("Choose folders to create the first catalogue. DriveLens stores catalogue data in .drivelens at the storage root.")
                 }
                 .frame(maxWidth: .infinity, minHeight: 180)
             } else {
@@ -323,18 +324,18 @@ struct AppInfoView: View {
 
     private var deleteCatalogueMessage: String {
         guard let deletingCatalogue else {
-            return "DriveLens will delete catalogue metadata and generated caches. Original photos and videos are not touched."
+            return "DriveLens will delete catalogue metadata, thumbnails, and generated caches. Original photos and videos are not changed."
         }
 
         let scope = deletingCatalogue.isNamedCatalogue
             ? "\(deletingCatalogue.sourceCount) imported folder\(deletingCatalogue.sourceCount == 1 ? "" : "s")"
             : "legacy single-folder catalogue"
-        return "This deletes metadata, thumbnails, indexes, duplicate hashes, and bookmarks for \(deletingCatalogue.name) (\(scope)). Original photos and videos are not touched."
+        return "This deletes metadata, thumbnails, indexes, duplicate hashes, and saved pointers for \(deletingCatalogue.name) (\(scope)). Original photos and videos are not changed."
     }
 
     private var moveCatalogueMessage: String {
         guard let movingCatalogue else {
-            return "DriveLens will move generated catalogue data to .drivelens at the root of the imported storage volume. Original photos and videos are not changed."
+            return "DriveLens will move generated catalogue data to .drivelens at the storage root. Original photos and videos are not changed."
         }
 
         return "DriveLens will copy \(movingCatalogue.name)'s database, thumbnails, hashes, and caches into .drivelens at the storage root, verify the copied catalogue opens, then remove the old Mac-side copy. Original photos and videos are not changed."
@@ -343,11 +344,11 @@ struct AppInfoView: View {
     private var privacySection: some View {
         AppInfoSection(title: "Privacy", subtitle: "Local by design") {
             VStack(alignment: .leading, spacing: 10) {
-                Label("DriveLens keeps generated catalogue data at the storage root whenever possible.", systemImage: "lock.shield")
+                Label("DriveLens stores catalogue data in .drivelens at the storage root whenever possible.", systemImage: "lock.shield")
                     .font(.callout.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("New catalogues store metadata, thumbnails, geocoding cache, duplicate hashes, and indexes inside a hidden .drivelens folder at the root of the selected storage volume. This Mac keeps only small security-scoped bookmarks and catalogue pointers. Older catalogues can be moved from the Catalogues section.")
+                Text("New catalogues store metadata, thumbnails, geocoding cache, duplicate hashes, and indexes inside .drivelens at the root of the selected storage volume. This Mac keeps only small security-scoped bookmarks and catalogue pointers. Older catalogues can be moved from the Catalogues section.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
