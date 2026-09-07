@@ -54,12 +54,13 @@ struct SmartAlbumsView: View {
                 if filteredGroups.isEmpty {
                     noResults.frame(minHeight: 420)
                 } else {
-                    LazyVStack(alignment: .leading, spacing: 28) {
+                    LazyVStack(alignment: .leading, spacing: 34) {
                         ForEach(filteredGroups) { group in
                             albumSection(group)
                         }
                     }
-                    .padding(18)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 20)
                 }
             }
             .background(Color(nsColor: .textBackgroundColor))
@@ -74,9 +75,9 @@ struct SmartAlbumsView: View {
             if group.albums.isEmpty && group.category == .custom {
                 EmptyCustomAlbumsCard { presentAlbumEditor() }
             } else {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                     ForEach(group.albums) { album in
-                        albumCard(album)
+                        albumCard(album, category: group.category)
                     }
                 }
             }
@@ -84,17 +85,23 @@ struct SmartAlbumsView: View {
     }
 
     @ViewBuilder
-    private func albumCard(_ album: SmartAlbum) -> some View {
+    private func albumCard(_ album: SmartAlbum, category: SmartAlbumCategory) -> some View {
         if case .customAlbum(let albumID) = album.kind,
            let customAlbum = appState.customAlbums.first(where: { $0.id == albumID }) {
             SmartAlbumCard(
                 album: album,
+                category: category,
+                coverItems: appState.coverItems(for: album),
                 action: { Task { await appState.openSmartAlbum(album) } },
                 renameAction: { presentAlbumEditor(customAlbum) },
                 deleteAction: { albumPendingDeletion = customAlbum }
             )
         } else {
-            SmartAlbumCard(album: album) {
+            SmartAlbumCard(
+                album: album,
+                category: category,
+                coverItems: appState.coverItems(for: album)
+            ) {
                 Task { await appState.openSmartAlbum(album) }
             }
         }
@@ -219,7 +226,7 @@ struct SmartAlbumsView: View {
     }
 
     private var columns: [GridItem] {
-        [GridItem(.adaptive(minimum: 230, maximum: 330), spacing: 12, alignment: .top)]
+        [GridItem(.adaptive(minimum: 250, maximum: 360), spacing: 18, alignment: .top)]
     }
 }
 
@@ -526,19 +533,27 @@ private struct SmartAlbumDetailHeader: View {
 }
 
 private struct SmartAlbumCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let album: SmartAlbum
+    let category: SmartAlbumCategory
+    let coverItems: [MediaItem]
     let action: () -> Void
     var renameAction: (() -> Void)?
     var deleteAction: (() -> Void)?
     @State private var isHovering = false
+    @FocusState private var isFocused: Bool
 
     init(
         album: SmartAlbum,
+        category: SmartAlbumCategory,
+        coverItems: [MediaItem],
         action: @escaping () -> Void,
         renameAction: (() -> Void)? = nil,
         deleteAction: (() -> Void)? = nil
     ) {
         self.album = album
+        self.category = category
+        self.coverItems = coverItems
         self.action = action
         self.renameAction = renameAction
         self.deleteAction = deleteAction
@@ -546,57 +561,72 @@ private struct SmartAlbumCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 12) {
-                    icon
-                    VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 0) {
+                SmartAlbumCover(
+                    album: album,
+                    category: category,
+                    items: coverItems,
+                    showsOpenAffordance: isHovering || isFocused
+                )
+                .aspectRatio(3 / 2, contentMode: .fit)
+                .scaleEffect(isHovering && !reduceMotion ? 1.012 : 1)
+                .clipped()
+
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(album.title)
                             .font(.headline.weight(.semibold))
                             .lineLimit(1)
                             .truncationMode(.tail)
-                        Text(album.subtitle)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 8)
-                }
 
-                HStack(spacing: 8) {
-                    if album.isPlaceholder {
-                        Text("Coming Later")
+                        Spacer(minLength: 4)
+
+                        Image(systemName: "chevron.right")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.quaternary.opacity(0.55), in: Capsule())
-                    } else {
-                        Text("\(album.itemCount) item\(album.itemCount == 1 ? "" : "s")")
-                            .font(.caption.weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(isHovering || isFocused ? Color.accentColor : Color.secondary.opacity(0.55))
+                            .accessibilityHidden(true)
                     }
-                    Spacer()
-                    Image(systemName: "chevron.right")
+
+                    Text(album.subtitle)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(statusText)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                        .foregroundStyle(album.isPlaceholder ? Color.secondary : Color.accentColor)
+                        .padding(.top, 1)
                 }
+                .padding(13)
+                .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 130, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(cardBackground, in: RoundedRectangle(cornerRadius: 9))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay {
-                RoundedRectangle(cornerRadius: 9)
+                RoundedRectangle(cornerRadius: 12)
                     .stroke(
-                        isHovering ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.08),
-                        lineWidth: isHovering ? 1.5 : 1
+                        isFocused
+                            ? Color.accentColor
+                            : (isHovering ? Color.accentColor.opacity(0.48) : Color.primary.opacity(0.09)),
+                        lineWidth: isFocused ? 2 : (isHovering ? 1.5 : 1)
                     )
             }
-            .contentShape(RoundedRectangle(cornerRadius: 9))
+            .shadow(
+                color: .black.opacity(isHovering ? 0.16 : 0.07),
+                radius: isHovering ? 12 : 5,
+                y: isHovering ? 5 : 2
+            )
+            .offset(y: isHovering && !reduceMotion ? -2 : 0)
+            .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
+        .focused($isFocused)
         .onHover { isHovering = $0 }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isHovering)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isFocused)
         .contextMenu {
             if let renameAction {
                 Button(action: renameAction) {
@@ -622,22 +652,176 @@ private struct SmartAlbumCard: View {
             : "\(album.title), \(album.itemCount) item\(album.itemCount == 1 ? "" : "s")"
     }
 
-    private var icon: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.accentColor.opacity(album.isPlaceholder ? 0.10 : 0.14))
-            Image(systemName: album.systemImage)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(album.isPlaceholder ? .secondary : Color.accentColor)
-                .symbolRenderingMode(.hierarchical)
+    private var statusText: String {
+        if album.isPlaceholder {
+            return "Coming Later"
         }
-        .frame(width: 40, height: 40)
+        if album.itemCount == 0 {
+            return "Empty Album"
+        }
+        return "\(album.itemCount) item\(album.itemCount == 1 ? "" : "s")"
     }
 
     private var cardBackground: Color {
         isHovering
             ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.09)
             : Color(nsColor: .controlBackgroundColor)
+    }
+}
+
+private struct SmartAlbumCover: View {
+    let album: SmartAlbum
+    let category: SmartAlbumCategory
+    let items: [MediaItem]
+    let showsOpenAffordance: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                coverContent(size: geometry.size)
+
+                LinearGradient(
+                    colors: [.black.opacity(0.22), .clear, .black.opacity(0.12)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                VStack {
+                    HStack(alignment: .top) {
+                        categoryBadge
+                        Spacer(minLength: 8)
+                        if showsOpenAffordance && !album.isPlaceholder {
+                            openAffordance
+                                .transition(.scale(scale: 0.8).combined(with: .opacity))
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(10)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .background(Color(nsColor: .underPageBackgroundColor))
+        }
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func coverContent(size: CGSize) -> some View {
+        let covers = Array(items.prefix(3))
+        let gap: CGFloat = 2
+
+        switch covers.count {
+        case 1:
+            coverTile(covers[0])
+        case 2:
+            HStack(spacing: gap) {
+                coverTile(covers[0])
+                coverTile(covers[1])
+            }
+        case 3:
+            let secondaryWidth = max(0, (size.width - gap) / 3)
+            let primaryWidth = max(0, size.width - secondaryWidth - gap)
+            HStack(spacing: gap) {
+                coverTile(covers[0])
+                    .frame(width: primaryWidth)
+
+                VStack(spacing: gap) {
+                    coverTile(covers[1])
+                    coverTile(covers[2])
+                }
+                .frame(width: secondaryWidth)
+            }
+        default:
+            emptyCover
+        }
+    }
+
+    private func coverTile(_ item: MediaItem) -> some View {
+        ZStack(alignment: .bottomTrailing) {
+            AsyncMediaThumbnailImage(
+                item: item,
+                fillsAvailableSpace: true,
+                showsPlaceholderLabel: false
+            )
+
+            if item.kind == .video {
+                Image(systemName: "play.fill")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(6)
+                    .background(.black.opacity(0.54), in: Circle())
+                    .padding(7)
+            }
+        }
+        .clipped()
+    }
+
+    private var emptyCover: some View {
+        ZStack {
+            LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
+
+            Circle()
+                .fill(.white.opacity(0.10))
+                .frame(width: 170, height: 170)
+                .offset(x: 90, y: -54)
+
+            Circle()
+                .fill(.white.opacity(0.07))
+                .frame(width: 120, height: 120)
+                .offset(x: -110, y: 68)
+
+            VStack(spacing: 9) {
+                Image(systemName: album.systemImage)
+                    .font(.system(size: 32, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                Text(emptyCoverText)
+                    .font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(.white.opacity(0.94))
+        }
+    }
+
+    private var categoryBadge: some View {
+        Label(category.title, systemImage: category.systemImage)
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(.ultraThinMaterial, in: Capsule())
+    }
+
+    private var openAffordance: some View {
+        Image(systemName: "arrow.up.right")
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.primary)
+            .frame(width: 28, height: 28)
+            .background(.ultraThinMaterial, in: Circle())
+    }
+
+    private var emptyCoverText: String {
+        if album.isPlaceholder { return "Coming Later" }
+        if album.itemCount == 0 {
+            if case .customAlbum = album.kind { return "Ready for Your Picks" }
+            return "No Matching Items"
+        }
+        return "Preview Unavailable"
+    }
+
+    private var gradientColors: [Color] {
+        switch category {
+        case .highlights:
+            return [.purple.opacity(0.92), .indigo.opacity(0.94)]
+        case .devices:
+            return [.blue.opacity(0.92), .cyan.opacity(0.80)]
+        case .places:
+            return [.teal.opacity(0.92), .green.opacity(0.78)]
+        case .custom:
+            return [.orange.opacity(0.92), .pink.opacity(0.78)]
+        case .catalogueHealth:
+            return [.pink.opacity(0.90), .red.opacity(0.78)]
+        case .comingLater:
+            return [.indigo.opacity(0.74), .gray.opacity(0.82)]
+        }
     }
 }
 

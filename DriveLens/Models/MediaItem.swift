@@ -80,6 +80,7 @@ enum DateSource: String, Hashable {
     case mediaCreationDate
     case filename
     case filesystemModified
+    case manual
     case unknown
 
     var label: String {
@@ -90,6 +91,7 @@ enum DateSource: String, Hashable {
         case .mediaCreationDate: "Media creation date"
         case .filename: "Filename"
         case .filesystemModified: "File modification date"
+        case .manual: "Edited in DriveLens"
         case .unknown: "Unknown"
         }
     }
@@ -124,21 +126,63 @@ struct CustomAlbum: Identifiable, Hashable {
 struct BatchMetadataSummary: Equatable {
     var selectedCount: Int
     var sharedKeywords: [String]
+    var commonKeywords: [String]?
+    var hasMixedKeywords: Bool
     var commonCaption: String?
     var hasMixedCaptions: Bool
+    var commonCaptureDate: Date?
+    var hasMixedCaptureDates: Bool
     var commonLocationText: String?
     var hasMixedLocations: Bool
+    var commonCameraMake: String?
+    var commonCameraModel: String?
+    var commonLensModel: String?
+    var hasMixedCameraDetails: Bool
     var commonFavorite: Bool?
 
     static let empty = BatchMetadataSummary(
         selectedCount: 0,
         sharedKeywords: [],
+        commonKeywords: nil,
+        hasMixedKeywords: false,
         commonCaption: nil,
         hasMixedCaptions: false,
+        commonCaptureDate: nil,
+        hasMixedCaptureDates: false,
         commonLocationText: nil,
         hasMixedLocations: false,
+        commonCameraMake: nil,
+        commonCameraModel: nil,
+        commonLensModel: nil,
+        hasMixedCameraDetails: false,
         commonFavorite: nil
     )
+}
+
+struct BatchMetadataUpdate {
+    var replaceKeywords: [String]?
+    var caption: String?
+    var createdDate: Date?
+    var cameraMake: String?
+    var cameraModel: String?
+    var lensModel: String?
+    var updatesCameraDetails = false
+    var latitude: Double?
+    var longitude: Double?
+    var city: String?
+    var state: String?
+    var country: String?
+    var updatesLocation = false
+    var favorite: Bool?
+
+    var hasChanges: Bool {
+        replaceKeywords != nil
+            || caption != nil
+            || createdDate != nil
+            || updatesCameraDetails
+            || updatesLocation
+            || favorite != nil
+    }
 }
 
 struct MissingFolderRepairCandidate: Identifiable, Hashable {
@@ -175,12 +219,7 @@ struct MissingFileRepairResult: Equatable {
     }
 }
 
-struct SearchFilters: Equatable {
-    var photosOnly = false
-    var videosOnly = false
-}
-
-enum TimelineQuickFilter: String, CaseIterable, Identifiable {
+enum TimelineQuickFilter: String, CaseIterable, Identifiable, Hashable {
     case all
     case photos
     case videos
@@ -261,6 +300,21 @@ struct CatalogueCounts: Equatable {
 
     var photoLikeItems: Int {
         photos
+    }
+
+    func count(for filter: TimelineQuickFilter) -> Int {
+        switch filter {
+        case .all:
+            return totalItems
+        case .photos:
+            return photoLikeItems
+        case .videos:
+            return videoLikeItems
+        case .withLocation:
+            return locatedItems
+        case .withoutLocation:
+            return missingLocationItems
+        }
     }
 }
 

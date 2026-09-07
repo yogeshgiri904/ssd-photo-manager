@@ -10,17 +10,20 @@ struct SearchView: View {
 
             Divider()
 
-            TimelineView(items: appState.searchItems, title: "Search", showsHeader: false)
+            TimelineView(
+                items: appState.searchItems,
+                title: "Search",
+                counts: appState.countsForCurrentSearchFilter(),
+                showsHeader: false,
+                showsQuickFilters: true,
+                controlScope: .search
+            )
         }
-        .navigationTitle("Search")
-        .task {
-            appState.refreshSearchResultCount()
-        }
-        .onChange(of: appState.searchText) { _, _ in
-            appState.refreshSearchResultCount()
-        }
-        .onChange(of: appState.activeFilters) { _, _ in
-            appState.refreshSearchResultCount()
+        .navigationTitle("Search Catalogue")
+        .task(id: appState.searchText) {
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled else { return }
+            appState.refreshSearch()
         }
     }
 }
@@ -30,93 +33,96 @@ private struct SearchHeader: View {
     @FocusState private var isSearchFocused: Bool
     let resultCount: Int
 
+    private var hasSearchCriteria: Bool {
+        !appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || appState.searchQuickFilter != .all
+            || appState.selectedSearchYear != nil
+            || appState.searchSort != .captureNewest
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Label("Search", systemImage: "magnifyingglass")
-                    .font(.title2.weight(.semibold))
-
-                Spacer()
-
-                Label("\(resultCount)", systemImage: "photo.stack")
-                    .font(.callout.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-                    .accessibilityLabel("\(resultCount) search result\(resultCount == 1 ? "" : "s")")
-            }
-
-            HStack(spacing: 12) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search filenames, dates, places, cameras, keywords", text: $appState.searchText)
-                    .textFieldStyle(.plain)
-                    .font(.title3)
-                    .focused($isSearchFocused)
-                    .submitLabel(.search)
-                    .accessibilityLabel("Search catalogue")
-                if !appState.searchText.isEmpty {
-                    Button {
-                        appState.searchText = ""
-                    } label: {
-                        Label("Clear Search", systemImage: "xmark.circle.fill")
-                    }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Clear Search")
-                    .accessibilityLabel("Clear search")
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSearchFocused ? Color.accentColor.opacity(0.62) : Color.primary.opacity(0.08), lineWidth: isSearchFocused ? 2 : 1)
-            }
-
-            HStack(spacing: 8) {
-                Label("Filters", systemImage: "line.3.horizontal.decrease.circle")
-                    .foregroundStyle(.secondary)
-                SearchFilterToggle(title: "Photos", systemImage: "photo", isOn: $appState.activeFilters.photosOnly)
-                SearchFilterToggle(title: "Videos", systemImage: "film", isOn: $appState.activeFilters.videosOnly)
-                Spacer()
-                Button {
-                    appState.searchText = ""
-                    appState.activeFilters = SearchFilters()
-                } label: {
-                    Label("Reset Filters", systemImage: "arrow.counterclockwise")
-                }
-                .disabled(appState.searchText.isEmpty && appState.activeFilters == SearchFilters())
-                .help("Reset search and filters")
-            }
-            .controlSize(.small)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(Color(nsColor: .windowBackgroundColor))
+        CatalogueControlsHeader(
+            title: "Search Catalogue",
+            systemImage: "magnifyingglass",
+            summary: summary,
+            counts: appState.countsForCurrentSearchFilter(),
+            filters: TimelineQuickFilter.allCases,
+            selectedFilter: appState.searchQuickFilter,
+            filterCount: appState.searchQuickFilterCount(for:),
+            selectedSort: appState.searchSort,
+            selectedYear: appState.selectedSearchYear,
+            years: appState.searchYears,
+            gridSize: $appState.gridSize,
+            hasActiveControls: hasSearchCriteria,
+            resetLabel: "Clear Search and Filters",
+            backAction: nil,
+            onSelectFilter: appState.setSearchQuickFilter,
+            onSelectSort: appState.setSearchSort,
+            onSelectYear: appState.setSearchYear,
+            onReset: {
+                appState.resetSearchControls()
+                isSearchFocused = true
+            },
+            accessory: searchField
+        )
         .onAppear {
-            isSearchFocused = true
+            if appState.searchText.isEmpty {
+                isSearchFocused = true
+            }
         }
     }
 
-}
-
-private struct SearchFilterToggle: View {
-    let title: String
-    let systemImage: String
-    @Binding var isOn: Bool
-
-    var body: some View {
-        Toggle(isOn: $isOn) {
-            Label(title, systemImage: systemImage)
+    private var summary: String {
+        guard resultCount > 0 else {
+            return hasSearchCriteria ? "No matching catalogue items" : "Search your catalogue"
         }
-        .toggleStyle(.button)
-        .help(title)
-        .accessibilityLabel("Show \(title.lowercased())")
-        .accessibilityValue(isOn ? "On" : "Off")
+
+        let yearText = appState.selectedSearchYear.map { " from \($0)" } ?? ""
+        let filterText = appState.searchQuickFilter == .all ? "" : " · \(appState.searchQuickFilter.title)"
+        return "\(resultCount) result\(resultCount == 1 ? "" : "s")\(yearText)\(filterText) · \(appState.searchSort.title)"
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(isSearchFocused ? Color.accentColor : .secondary)
+                .accessibilityHidden(true)
+
+            TextField("Search filenames, dates, places, cameras, captions, or keywords", text: $appState.searchText)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .focused($isSearchFocused)
+                .submitLabel(.search)
+                .onSubmit {
+                    appState.refreshSearch()
+                }
+                .accessibilityLabel("Search catalogue")
+                .accessibilityHint("Search by filename, date, place, camera, caption, or keyword")
+
+            if !appState.searchText.isEmpty {
+                Button {
+                    appState.searchText = ""
+                    isSearchFocused = true
+                } label: {
+                    Label("Clear Search", systemImage: "xmark.circle.fill")
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Clear search text")
+                .accessibilityLabel("Clear search text")
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 38)
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9)
+                .stroke(
+                    isSearchFocused ? Color.accentColor.opacity(0.72) : Color.primary.opacity(0.10),
+                    lineWidth: isSearchFocused ? 2 : 1
+                )
+        }
+        .shadow(color: .black.opacity(isSearchFocused ? 0.08 : 0.03), radius: 3, y: 1)
     }
 }

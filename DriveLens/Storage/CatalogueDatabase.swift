@@ -1,6 +1,11 @@
 import Foundation
 import SQLite3
 
+struct CatalogueFolderRemovalResult: Sendable {
+    let itemCount: Int
+    let generatedFilePaths: [String]
+}
+
 final class CatalogueDatabase {
     private var db: OpaquePointer?
     private let isoFormatter = ISO8601DateFormatter()
@@ -48,6 +53,34 @@ final class CatalogueDatabase {
             try delete(relativePath: relativePath)
             try rebuildFolders()
         }
+    }
+
+    func removeMediaItems(sourcePrefix rawPrefix: String) throws -> CatalogueFolderRemovalResult {
+        let sourcePrefix = rawPrefix.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var result = CatalogueFolderRemovalResult(itemCount: 0, generatedFilePaths: [])
+
+        try transaction {
+            result = try folderRemovalResult(sourcePrefix: sourcePrefix)
+
+            let condition = sourcePrefix.isEmpty
+                ? "1 = 1"
+                : "relative_path = ?1 OR substr(relative_path, 1, length(?1) + 1) = ?1 || '/'"
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "DELETE FROM media_items WHERE \(condition);", -1, &statement, nil) == SQLITE_OK else {
+                throw CatalogueDatabaseError.prepareFailed(message: lastError)
+            }
+            defer { sqlite3_finalize(statement) }
+            if !sourcePrefix.isEmpty {
+                bind(statement, 1, sourcePrefix)
+            }
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw CatalogueDatabaseError.writeFailed(message: lastError)
+            }
+
+            try rebuildFolders()
+        }
+
+        return result
     }
 
     func fetchMissingMediaItems() throws -> [MediaItem] {
@@ -385,7 +418,14 @@ final class CatalogueDatabase {
         return items
     }
 
-    func fetchVideos(limit: Int, offset: Int) throws -> [MediaItem] {
+    func fetchVideos(
+        filter: TimelineQuickFilter = .all,
+        year: Int? = nil,
+        sort: TimelineSortOption = .captureNewest,
+        limit: Int,
+        offset: Int
+    ) throws -> [MediaItem] {
+        let query = TimelineQuery(filter: filter, year: year, videosOnly: true)
         let sql = """
         SELECT id, relative_path, folder_path, filename, media_type, live_photo_group_id,
                capture_date, capture_date_local, date_source, width, height, orientation,
@@ -393,11 +433,21 @@ final class CatalogueDatabase {
                caption, keywords, latitude, longitude, city, state, country, location_source,
                thumbnail_path, video_thumbnail_path, is_missing, added_at, updated_at, user_keywords, user_caption, is_favorite
         FROM media_items
-        WHERE media_type = 'video'
-        ORDER BY capture_date DESC
+        \(query.whereClause)
+        ORDER BY \(sort.orderClause)
         LIMIT ? OFFSET ?;
         """
-        return try fetchMedia(sql: sql, limit: limit, offset: offset)
+        return try fetchMedia(sql: sql, values: query.values, limit: limit, offset: offset)
+    }
+
+    func fetchVideoCounts(filter: TimelineQuickFilter = .all, year: Int? = nil) throws -> CatalogueCounts {
+        let query = TimelineQuery(filter: filter, year: year, videosOnly: true)
+        return try fetchCounts(whereClause: query.whereClause, values: query.values)
+    }
+
+    func fetchVideoYears(filter: TimelineQuickFilter = .all) throws -> [Int] {
+        let query = TimelineQuery(filter: filter, year: nil, videosOnly: true)
+        return try fetchYears(whereClause: query.whereClause, values: query.values)
     }
 
     func fetchRecentlyAdded(filter: TimelineQuickFilter = .all, year: Int? = nil, sort: TimelineSortOption = .recentlyAdded, limit: Int, offset: Int) throws -> [MediaItem] {
@@ -435,66 +485,12 @@ final class CatalogueDatabase {
 
     func fetchTimelineCounts(filter: TimelineQuickFilter, year: Int? = nil) throws -> CatalogueCounts {
         let query = TimelineQuery(filter: filter, year: year)
-        let sql = """
-        SELECT
-          COUNT(*),
-          COALESCE(SUM(CASE WHEN media_type IN ('photo', 'livePhoto') THEN 1 ELSE 0 END), 0),
-          COALESCE(SUM(CASE WHEN media_type = 'video' THEN 1 ELSE 0 END), 0),
-          COALESCE(SUM(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 ELSE 0 END), 0),
-          COALESCE(SUM(CASE WHEN latitude IS NULL OR longitude IS NULL THEN 1 ELSE 0 END), 0)
-        FROM media_items
-        \(query.whereClause);
-        """
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw CatalogueDatabaseError.prepareFailed(message: lastError)
-        }
-        defer { sqlite3_finalize(statement) }
-
-        for (index, value) in query.values.enumerated() {
-            bind(statement, Int32(index + 1), value)
-        }
-
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            return .zero
-        }
-
-        return CatalogueCounts(
-            totalItems: Int(sqlite3_column_int(statement, 0)),
-            photos: Int(sqlite3_column_int(statement, 1)),
-            videos: Int(sqlite3_column_int(statement, 2)),
-            locatedItems: Int(sqlite3_column_int(statement, 3)),
-            missingLocationItems: Int(sqlite3_column_int(statement, 4))
-        )
+        return try fetchCounts(whereClause: query.whereClause, values: query.values)
     }
 
     func fetchTimelineYears(filter: TimelineQuickFilter) throws -> [Int] {
         let query = TimelineQuery(filter: filter, year: nil)
-        let sql = """
-        SELECT DISTINCT substr(capture_date, 1, 4)
-        FROM media_items
-        \(query.whereClause)
-        ORDER BY substr(capture_date, 1, 4) DESC;
-        """
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw CatalogueDatabaseError.prepareFailed(message: lastError)
-        }
-        defer { sqlite3_finalize(statement) }
-
-        for (index, value) in query.values.enumerated() {
-            bind(statement, Int32(index + 1), value)
-        }
-
-        var years: [Int] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            if let year = Int(textColumn(statement, 0)) {
-                years.append(year)
-            }
-        }
-        return years
+        return try fetchYears(whereClause: query.whereClause, values: query.values)
     }
 
     func fetchLocatedMedia(limit: Int, offset: Int) throws -> [MediaItem] {
@@ -660,7 +656,7 @@ final class CatalogueDatabase {
                 systemImage: "heart.fill",
                 kind: .favorites,
                 itemCount: try countMedia(whereClause: SmartAlbumKind.favorites.whereClause),
-                sortPriority: 60
+                sortPriority: 0
             )
         ]
 
@@ -710,6 +706,42 @@ final class CatalogueDatabase {
         LIMIT ? OFFSET ?;
         """
         return try fetchMedia(sql: sql, values: query.values, limit: limit, offset: offset)
+    }
+
+    func fetchSmartAlbumCoverItems(
+        albums: [SmartAlbum],
+        limitPerAlbum: Int = 3
+    ) throws -> [SmartAlbum.ID: [MediaItem]] {
+        let coverLimit = max(1, min(limitPerAlbum, 3))
+        var covers: [SmartAlbum.ID: [MediaItem]] = [:]
+        covers.reserveCapacity(albums.count)
+
+        for album in albums where !album.isPlaceholder && album.itemCount > 0 {
+            let query = smartAlbumQuery(album: album, filter: .all, year: nil)
+            let sql = """
+            SELECT id, relative_path, folder_path, filename, media_type, live_photo_group_id,
+                   capture_date, capture_date_local, date_source, width, height, orientation,
+                   duration_seconds, file_size, modified_at, camera_make, camera_model, lens_model,
+                   caption, keywords, latitude, longitude, city, state, country, location_source,
+                   thumbnail_path, video_thumbnail_path, is_missing, added_at, updated_at, user_keywords, user_caption, is_favorite
+            FROM media_items
+            \(query.whereClause)
+              AND (NULLIF(thumbnail_path, '') IS NOT NULL OR NULLIF(video_thumbnail_path, '') IS NOT NULL)
+            ORDER BY \(album.kind.orderClause)
+            LIMIT ? OFFSET ?;
+            """
+            let items = try fetchMedia(
+                sql: sql,
+                values: query.values,
+                limit: coverLimit,
+                offset: 0
+            )
+            if !items.isEmpty {
+                covers[album.id] = items
+            }
+        }
+
+        return covers
     }
 
     func fetchSmartAlbumCounts(album: SmartAlbum, filter: TimelineQuickFilter = .all, year: Int? = nil) throws -> CatalogueCounts {
@@ -866,21 +898,111 @@ final class CatalogueDatabase {
         }
     }
 
+    func replaceKeywords(_ keywords: [String], for itemIDs: [Int64]) throws {
+        try transaction {
+            try replaceKeywordsInCurrentTransaction(keywords, for: itemIDs)
+        }
+    }
+
+    private func replaceKeywordsInCurrentTransaction(_ keywords: [String], for itemIDs: [Int64]) throws {
+        var seen = Set<String>()
+        let normalizedKeywords = keywords
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0.localizedLowercase).inserted }
+        let storedKeywords = normalizedKeywords.isEmpty ? nil : normalizedKeywords.joined(separator: ",")
+
+        try updateMediaItemsInCurrentTransaction(
+            sql: """
+            UPDATE media_items
+            SET keywords = ?, user_keywords = NULL, user_keywords_override = 1, updated_at = ?
+            WHERE id = ?;
+            """,
+            itemIDs: itemIDs,
+            updatedAtIndex: 2,
+            itemIDIndex: 3,
+            bindValues: { statement in
+                bind(statement, 1, storedKeywords)
+            }
+        )
+    }
+
     func setUserCaption(_ caption: String, for itemIDs: [Int64]) throws {
+        try transaction {
+            try setUserCaptionInCurrentTransaction(caption, for: itemIDs)
+        }
+    }
+
+    private func setUserCaptionInCurrentTransaction(_ caption: String, for itemIDs: [Int64]) throws {
         let trimmed = caption.trimmingCharacters(in: .whitespacesAndNewlines)
-        try updateMediaItems(
+        try updateMediaItemsInCurrentTransaction(
             sql: "UPDATE media_items SET user_caption = ?, updated_at = ? WHERE id = ?;",
             itemIDs: itemIDs,
             updatedAtIndex: 2,
             itemIDIndex: 3,
             bindValues: { statement in
-                bind(statement, 1, trimmed.isEmpty ? nil : trimmed)
+                bind(statement, 1, trimmed)
+            }
+        )
+    }
+
+    func setCaptureDate(_ date: Date, for itemIDs: [Int64]) throws {
+        try transaction {
+            try setCaptureDateInCurrentTransaction(date, for: itemIDs)
+        }
+    }
+
+    private func setCaptureDateInCurrentTransaction(_ date: Date, for itemIDs: [Int64]) throws {
+        let localDateText = Self.localDateText(date)
+        try updateMediaItemsInCurrentTransaction(
+            sql: """
+            UPDATE media_items
+            SET capture_date = ?, capture_date_local = ?, date_source = 'manual',
+                user_capture_date_override = 1, updated_at = ?
+            WHERE id = ?;
+            """,
+            itemIDs: itemIDs,
+            updatedAtIndex: 3,
+            itemIDIndex: 4,
+            bindValues: { statement in
+                bind(statement, 1, isoFormatter.string(from: date))
+                bind(statement, 2, localDateText)
+            }
+        )
+    }
+
+    func setCameraDetails(make: String?, model: String?, lens: String?, for itemIDs: [Int64]) throws {
+        try transaction {
+            try setCameraDetailsInCurrentTransaction(make: make, model: model, lens: lens, for: itemIDs)
+        }
+    }
+
+    private func setCameraDetailsInCurrentTransaction(make: String?, model: String?, lens: String?, for itemIDs: [Int64]) throws {
+        try updateMediaItemsInCurrentTransaction(
+            sql: """
+            UPDATE media_items
+            SET camera_make = ?, camera_model = ?, lens_model = ?,
+                user_camera_details_override = 1, updated_at = ?
+            WHERE id = ?;
+            """,
+            itemIDs: itemIDs,
+            updatedAtIndex: 4,
+            itemIDIndex: 5,
+            bindValues: { statement in
+                bind(statement, 1, make?.nilIfEmpty)
+                bind(statement, 2, model?.nilIfEmpty)
+                bind(statement, 3, lens?.nilIfEmpty)
             }
         )
     }
 
     func setFavorite(_ isFavorite: Bool, for itemIDs: [Int64]) throws {
-        try updateMediaItems(
+        try transaction {
+            try setFavoriteInCurrentTransaction(isFavorite, for: itemIDs)
+        }
+    }
+
+    private func setFavoriteInCurrentTransaction(_ isFavorite: Bool, for itemIDs: [Int64]) throws {
+        try updateMediaItemsInCurrentTransaction(
             sql: "UPDATE media_items SET is_favorite = ?, updated_at = ? WHERE id = ?;",
             itemIDs: itemIDs,
             updatedAtIndex: 2,
@@ -891,7 +1013,27 @@ final class CatalogueDatabase {
         )
     }
 
-    func setManualLocation(latitude: Double, longitude: Double, city: String?, state: String?, country: String?, for itemIDs: [Int64]) throws {
+    func setManualLocation(latitude: Double?, longitude: Double?, city: String?, state: String?, country: String?, for itemIDs: [Int64]) throws {
+        try transaction {
+            try setManualLocationInCurrentTransaction(
+                latitude: latitude,
+                longitude: longitude,
+                city: city,
+                state: state,
+                country: country,
+                for: itemIDs
+            )
+        }
+    }
+
+    private func setManualLocationInCurrentTransaction(latitude: Double?, longitude: Double?, city: String?, state: String?, country: String?, for itemIDs: [Int64]) throws {
+        let normalizedCity = city?.nilIfEmpty
+        let normalizedState = state?.nilIfEmpty
+        let normalizedCountry = country?.nilIfEmpty
+        let hasLocation = (latitude != nil && longitude != nil)
+            || normalizedCity != nil
+            || normalizedState != nil
+            || normalizedCountry != nil
         let sql = """
         UPDATE media_items
         SET latitude = ?,
@@ -899,27 +1041,66 @@ final class CatalogueDatabase {
             city = ?,
             state = ?,
             country = ?,
-            location_source = 'manual',
+            location_source = ?,
             user_latitude = ?,
             user_longitude = ?,
             user_city = ?,
             user_state = ?,
             user_country = ?,
+            user_location_override = 1,
             updated_at = ?
         WHERE id = ?;
         """
 
-        try updateMediaItems(sql: sql, itemIDs: itemIDs, updatedAtIndex: 11, itemIDIndex: 12) { statement in
-            sqlite3_bind_double(statement, 1, latitude)
-            sqlite3_bind_double(statement, 2, longitude)
-            bind(statement, 3, city?.nilIfEmpty)
-            bind(statement, 4, state?.nilIfEmpty)
-            bind(statement, 5, country?.nilIfEmpty)
-            sqlite3_bind_double(statement, 6, latitude)
-            sqlite3_bind_double(statement, 7, longitude)
-            bind(statement, 8, city?.nilIfEmpty)
-            bind(statement, 9, state?.nilIfEmpty)
-            bind(statement, 10, country?.nilIfEmpty)
+        try updateMediaItemsInCurrentTransaction(sql: sql, itemIDs: itemIDs, updatedAtIndex: 12, itemIDIndex: 13) { statement in
+            bind(statement, 1, latitude)
+            bind(statement, 2, longitude)
+            bind(statement, 3, normalizedCity)
+            bind(statement, 4, normalizedState)
+            bind(statement, 5, normalizedCountry)
+            bind(statement, 6, hasLocation ? LocationSource.manual.rawValue : LocationSource.none.rawValue)
+            bind(statement, 7, latitude)
+            bind(statement, 8, longitude)
+            bind(statement, 9, normalizedCity)
+            bind(statement, 10, normalizedState)
+            bind(statement, 11, normalizedCountry)
+        }
+    }
+
+    func applyBatchMetadataUpdate(_ update: BatchMetadataUpdate, for itemIDs: [Int64]) throws {
+        guard update.hasChanges, !itemIDs.isEmpty else { return }
+
+        try transaction {
+            if let keywords = update.replaceKeywords {
+                try replaceKeywordsInCurrentTransaction(keywords, for: itemIDs)
+            }
+            if let caption = update.caption {
+                try setUserCaptionInCurrentTransaction(caption, for: itemIDs)
+            }
+            if let createdDate = update.createdDate {
+                try setCaptureDateInCurrentTransaction(createdDate, for: itemIDs)
+            }
+            if update.updatesCameraDetails {
+                try setCameraDetailsInCurrentTransaction(
+                    make: update.cameraMake,
+                    model: update.cameraModel,
+                    lens: update.lensModel,
+                    for: itemIDs
+                )
+            }
+            if update.updatesLocation {
+                try setManualLocationInCurrentTransaction(
+                    latitude: update.latitude,
+                    longitude: update.longitude,
+                    city: update.city,
+                    state: update.state,
+                    country: update.country,
+                    for: itemIDs
+                )
+            }
+            if let favorite = update.favorite {
+                try setFavoriteInCurrentTransaction(favorite, for: itemIDs)
+            }
         }
     }
 
@@ -951,26 +1132,33 @@ final class CatalogueDatabase {
         return (album, addedCount)
     }
 
-    func countMedia(searchText: String, filters: SearchFilters) throws -> Int {
-        let query = MediaQuery(searchText: searchText, filters: filters)
-        let sql = "SELECT COUNT(*) FROM media_items \(query.whereClause);"
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw CatalogueDatabaseError.prepareFailed(message: lastError)
-        }
-        defer { sqlite3_finalize(statement) }
-
-        for (index, value) in query.values.enumerated() {
-            bind(statement, Int32(index + 1), value)
-        }
-
-        guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
-        return Int(sqlite3_column_int(statement, 0))
+    func countMedia(searchText: String, filter: TimelineQuickFilter) throws -> Int {
+        try fetchSearchCounts(searchText: searchText, filter: filter).totalItems
     }
 
-    func fetchMedia(searchText: String, filters: SearchFilters, limit: Int, offset: Int) throws -> [MediaItem] {
-        let query = MediaQuery(searchText: searchText, filters: filters)
+    func fetchSearchCounts(
+        searchText: String,
+        filter: TimelineQuickFilter = .all,
+        year: Int? = nil
+    ) throws -> CatalogueCounts {
+        let query = MediaQuery(searchText: searchText, filter: filter, year: year)
+        return try fetchCounts(whereClause: query.whereClause, values: query.values)
+    }
+
+    func fetchSearchYears(searchText: String, filter: TimelineQuickFilter = .all) throws -> [Int] {
+        let query = MediaQuery(searchText: searchText, filter: filter)
+        return try fetchYears(whereClause: query.whereClause, values: query.values)
+    }
+
+    func fetchMedia(
+        searchText: String,
+        filter: TimelineQuickFilter,
+        year: Int? = nil,
+        sort: TimelineSortOption = .captureNewest,
+        limit: Int,
+        offset: Int
+    ) throws -> [MediaItem] {
+        let query = MediaQuery(searchText: searchText, filter: filter, year: year)
         let sql = """
         SELECT id, relative_path, folder_path, filename, media_type, live_photo_group_id,
                capture_date, capture_date_local, date_source, width, height, orientation,
@@ -979,7 +1167,7 @@ final class CatalogueDatabase {
                thumbnail_path, video_thumbnail_path, is_missing, added_at, updated_at, user_keywords, user_caption, is_favorite
         FROM media_items
         \(query.whereClause)
-        ORDER BY capture_date DESC
+        ORDER BY \(sort.orderClause)
         LIMIT ? OFFSET ?;
         """
 
@@ -1109,11 +1297,20 @@ final class CatalogueDatabase {
         if !columnExists("user_keywords", in: "media_items") {
             try execute("ALTER TABLE media_items ADD COLUMN user_keywords TEXT;")
         }
+        if !columnExists("user_keywords_override", in: "media_items") {
+            try execute("ALTER TABLE media_items ADD COLUMN user_keywords_override INTEGER NOT NULL DEFAULT 0;")
+        }
         if !columnExists("user_caption", in: "media_items") {
             try execute("ALTER TABLE media_items ADD COLUMN user_caption TEXT;")
         }
         if !columnExists("is_favorite", in: "media_items") {
             try execute("ALTER TABLE media_items ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0;")
+        }
+        if !columnExists("user_capture_date_override", in: "media_items") {
+            try execute("ALTER TABLE media_items ADD COLUMN user_capture_date_override INTEGER NOT NULL DEFAULT 0;")
+        }
+        if !columnExists("user_camera_details_override", in: "media_items") {
+            try execute("ALTER TABLE media_items ADD COLUMN user_camera_details_override INTEGER NOT NULL DEFAULT 0;")
         }
         if !columnExists("user_latitude", in: "media_items") {
             try execute("ALTER TABLE media_items ADD COLUMN user_latitude REAL;")
@@ -1129,6 +1326,18 @@ final class CatalogueDatabase {
         }
         if !columnExists("user_country", in: "media_items") {
             try execute("ALTER TABLE media_items ADD COLUMN user_country TEXT;")
+        }
+        if !columnExists("user_location_override", in: "media_items") {
+            try execute("ALTER TABLE media_items ADD COLUMN user_location_override INTEGER NOT NULL DEFAULT 0;")
+            try execute("""
+            UPDATE media_items
+            SET user_location_override = 1
+            WHERE user_latitude IS NOT NULL
+               OR user_longitude IS NOT NULL
+               OR user_city IS NOT NULL
+               OR user_state IS NOT NULL
+               OR user_country IS NOT NULL;
+            """)
         }
 
         try execute("""
@@ -1235,27 +1444,27 @@ final class CatalogueDatabase {
           filename=excluded.filename,
           media_type=excluded.media_type,
           live_photo_group_id=excluded.live_photo_group_id,
-          capture_date=excluded.capture_date,
-          capture_date_local=excluded.capture_date_local,
-          date_source=excluded.date_source,
+          capture_date=CASE WHEN media_items.user_capture_date_override = 1 THEN media_items.capture_date ELSE excluded.capture_date END,
+          capture_date_local=CASE WHEN media_items.user_capture_date_override = 1 THEN media_items.capture_date_local ELSE excluded.capture_date_local END,
+          date_source=CASE WHEN media_items.user_capture_date_override = 1 THEN media_items.date_source ELSE excluded.date_source END,
           width=excluded.width,
           height=excluded.height,
           orientation=excluded.orientation,
           duration_seconds=excluded.duration_seconds,
           file_size=excluded.file_size,
           modified_at=excluded.modified_at,
-          camera_make=excluded.camera_make,
-          camera_model=excluded.camera_model,
-          lens_model=excluded.lens_model,
+          camera_make=CASE WHEN media_items.user_camera_details_override = 1 THEN media_items.camera_make ELSE excluded.camera_make END,
+          camera_model=CASE WHEN media_items.user_camera_details_override = 1 THEN media_items.camera_model ELSE excluded.camera_model END,
+          lens_model=CASE WHEN media_items.user_camera_details_override = 1 THEN media_items.lens_model ELSE excluded.lens_model END,
           caption=excluded.caption,
-          keywords=excluded.keywords,
-          latitude=COALESCE(media_items.user_latitude, excluded.latitude),
-          longitude=COALESCE(media_items.user_longitude, excluded.longitude),
-          city=COALESCE(media_items.user_city, excluded.city),
-          state=COALESCE(media_items.user_state, excluded.state),
-          country=COALESCE(media_items.user_country, excluded.country),
+          keywords=CASE WHEN media_items.user_keywords_override = 1 THEN media_items.keywords ELSE excluded.keywords END,
+          latitude=CASE WHEN media_items.user_location_override = 1 THEN media_items.user_latitude ELSE excluded.latitude END,
+          longitude=CASE WHEN media_items.user_location_override = 1 THEN media_items.user_longitude ELSE excluded.longitude END,
+          city=CASE WHEN media_items.user_location_override = 1 THEN media_items.user_city ELSE excluded.city END,
+          state=CASE WHEN media_items.user_location_override = 1 THEN media_items.user_state ELSE excluded.state END,
+          country=CASE WHEN media_items.user_location_override = 1 THEN media_items.user_country ELSE excluded.country END,
           location_source=CASE
-            WHEN media_items.user_latitude IS NOT NULL AND media_items.user_longitude IS NOT NULL THEN 'manual'
+            WHEN media_items.user_location_override = 1 THEN media_items.location_source
             ELSE excluded.location_source
           END,
           thumbnail_path=excluded.thumbnail_path,
@@ -1434,6 +1643,43 @@ final class CatalogueDatabase {
         """)
     }
 
+    private func folderRemovalResult(sourcePrefix: String) throws -> CatalogueFolderRemovalResult {
+        let condition = sourcePrefix.isEmpty
+            ? "1 = 1"
+            : "relative_path = ?1 OR substr(relative_path, 1, length(?1) + 1) = ?1 || '/'"
+        let sql = """
+        SELECT thumbnail_path, video_thumbnail_path
+        FROM media_items
+        WHERE \(condition);
+        """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw CatalogueDatabaseError.prepareFailed(message: lastError)
+        }
+        defer { sqlite3_finalize(statement) }
+        if !sourcePrefix.isEmpty {
+            bind(statement, 1, sourcePrefix)
+        }
+
+        var itemCount = 0
+        var paths = Set<String>()
+        while sqlite3_step(statement) == SQLITE_ROW {
+            itemCount += 1
+            if let thumbnailPath = optionalTextColumn(statement, 0), !thumbnailPath.isEmpty {
+                paths.insert(thumbnailPath)
+            }
+            if let videoThumbnailPath = optionalTextColumn(statement, 1), !videoThumbnailPath.isEmpty {
+                paths.insert(videoThumbnailPath)
+            }
+        }
+
+        return CatalogueFolderRemovalResult(
+            itemCount: itemCount,
+            generatedFilePaths: paths.sorted()
+        )
+    }
+
     private func transaction(_ work: () throws -> Void) throws {
         try execute("BEGIN IMMEDIATE TRANSACTION;")
         do {
@@ -1598,20 +1844,37 @@ final class CatalogueDatabase {
     ) throws {
         guard !itemIDs.isEmpty else { return }
         try transaction {
-            for id in itemIDs {
-                var statement: OpaquePointer?
-                guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-                    throw CatalogueDatabaseError.prepareFailed(message: lastError)
-                }
-                defer { sqlite3_finalize(statement) }
+            try updateMediaItemsInCurrentTransaction(
+                sql: sql,
+                itemIDs: itemIDs,
+                updatedAtIndex: updatedAtIndex,
+                itemIDIndex: itemIDIndex,
+                bindValues: bindValues
+            )
+        }
+    }
 
-                bindValues(statement)
-                bind(statement, updatedAtIndex, isoFormatter.string(from: Date()))
-                sqlite3_bind_int64(statement, itemIDIndex, id)
+    private func updateMediaItemsInCurrentTransaction(
+        sql: String,
+        itemIDs: [Int64],
+        updatedAtIndex: Int32,
+        itemIDIndex: Int32,
+        bindValues: (OpaquePointer?) -> Void
+    ) throws {
+        guard !itemIDs.isEmpty else { return }
+        for id in itemIDs {
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+                throw CatalogueDatabaseError.prepareFailed(message: lastError)
+            }
+            defer { sqlite3_finalize(statement) }
 
-                guard sqlite3_step(statement) == SQLITE_DONE else {
-                    throw CatalogueDatabaseError.writeFailed(message: lastError)
-                }
+            bindValues(statement)
+            bind(statement, updatedAtIndex, isoFormatter.string(from: Date()))
+            sqlite3_bind_int64(statement, itemIDIndex, id)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw CatalogueDatabaseError.writeFailed(message: lastError)
             }
         }
     }
@@ -1745,6 +2008,65 @@ final class CatalogueDatabase {
             items.append(readMediaItem(from: statement))
         }
         return items
+    }
+
+    private func fetchCounts(whereClause: String, values: [String]) throws -> CatalogueCounts {
+        let sql = """
+        SELECT
+          COUNT(*),
+          COALESCE(SUM(CASE WHEN media_type IN ('photo', 'livePhoto') THEN 1 ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN media_type = 'video' THEN 1 ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN latitude IS NULL OR longitude IS NULL THEN 1 ELSE 0 END), 0)
+        FROM media_items
+        \(whereClause);
+        """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw CatalogueDatabaseError.prepareFailed(message: lastError)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        for (index, value) in values.enumerated() {
+            bind(statement, Int32(index + 1), value)
+        }
+
+        guard sqlite3_step(statement) == SQLITE_ROW else { return .zero }
+        return CatalogueCounts(
+            totalItems: Int(sqlite3_column_int(statement, 0)),
+            photos: Int(sqlite3_column_int(statement, 1)),
+            videos: Int(sqlite3_column_int(statement, 2)),
+            locatedItems: Int(sqlite3_column_int(statement, 3)),
+            missingLocationItems: Int(sqlite3_column_int(statement, 4))
+        )
+    }
+
+    private func fetchYears(whereClause: String, values: [String]) throws -> [Int] {
+        let sql = """
+        SELECT DISTINCT substr(capture_date, 1, 4)
+        FROM media_items
+        \(whereClause)
+        ORDER BY substr(capture_date, 1, 4) DESC;
+        """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw CatalogueDatabaseError.prepareFailed(message: lastError)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        for (index, value) in values.enumerated() {
+            bind(statement, Int32(index + 1), value)
+        }
+
+        var years: [Int] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let year = Int(textColumn(statement, 0)) {
+                years.append(year)
+            }
+        }
+        return years
     }
 
     private func fetchAllMediaItemsForPairing() throws -> [MediaItem] {
@@ -1882,6 +2204,13 @@ final class CatalogueDatabase {
     private func dateColumn(_ statement: OpaquePointer?, _ index: Int32) -> Date? {
         optionalTextColumn(statement, index).flatMap { isoFormatter.date(from: $0) }
     }
+
+    private static func localDateText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
 }
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -1993,9 +2322,13 @@ private struct TimelineQuery {
     let conditionClause: String
     let values: [String]
 
-    init(filter: TimelineQuickFilter, year: Int?) {
+    init(filter: TimelineQuickFilter, year: Int?, videosOnly: Bool = false) {
         var clauses: [String] = []
         var values: [String] = []
+
+        if videosOnly {
+            clauses.append("media_type = 'video'")
+        }
 
         switch filter {
         case .all:
@@ -2003,7 +2336,9 @@ private struct TimelineQuery {
         case .photos:
             clauses.append("media_type IN ('photo', 'livePhoto')")
         case .videos:
-            clauses.append("media_type = 'video'")
+            if !videosOnly {
+                clauses.append("media_type = 'video'")
+            }
         case .withLocation:
             clauses.append("(latitude IS NOT NULL AND longitude IS NOT NULL)")
         case .withoutLocation:
@@ -2133,7 +2468,7 @@ private struct MediaQuery {
     let whereClause: String
     let values: [String]
 
-    init(searchText: String, filters: SearchFilters) {
+    init(searchText: String, filter: TimelineQuickFilter, year: Int? = nil) {
         var clauses: [String] = []
         var values: [String] = []
         let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2145,8 +2480,8 @@ private struct MediaQuery {
               OR lower(folder_path) LIKE ?
               OR lower(capture_date) LIKE ?
               OR lower(capture_date_local) LIKE ?
-              OR lower(COALESCE(caption, '')) LIKE ?
-              OR lower(COALESCE(keywords, '')) LIKE ?
+              OR lower(COALESCE(NULLIF(user_caption, ''), caption, '')) LIKE ?
+              OR lower(COALESCE(keywords, '') || ' ' || COALESCE(user_keywords, '')) LIKE ?
               OR lower(COALESCE(city, '')) LIKE ?
               OR lower(COALESCE(state, '')) LIKE ?
               OR lower(COALESCE(country, '')) LIKE ?
@@ -2158,15 +2493,22 @@ private struct MediaQuery {
             values.append(contentsOf: Array(repeating: likeValue, count: 11))
         }
 
-        if filters.photosOnly || filters.videosOnly {
-            var typeClauses: [String] = []
-            if filters.photosOnly {
-                typeClauses.append("media_type IN ('photo', 'livePhoto')")
-            }
-            if filters.videosOnly {
-                typeClauses.append("media_type = 'video'")
-            }
-            clauses.append("(" + typeClauses.joined(separator: " OR ") + ")")
+        switch filter {
+        case .all:
+            break
+        case .photos:
+            clauses.append("media_type IN ('photo', 'livePhoto')")
+        case .videos:
+            clauses.append("media_type = 'video'")
+        case .withLocation:
+            clauses.append("(latitude IS NOT NULL AND longitude IS NOT NULL)")
+        case .withoutLocation:
+            clauses.append("(latitude IS NULL OR longitude IS NULL)")
+        }
+
+        if let year {
+            clauses.append("substr(capture_date, 1, 4) = ?")
+            values.append(String(year))
         }
 
         whereClause = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")

@@ -8,64 +8,85 @@ struct OnboardingView: View {
     private let pages = [
         OnboardingPage(
             title: "Your media stays where it is",
-            message: "DriveLens builds a private local catalogue without moving, renaming, or uploading your photos and videos.",
-            image: "externaldrive"
+            message: "DriveLens builds a private local catalogue without moving, renaming, or uploading your photos and videos."
         ),
         OnboardingPage(
             title: "Browse by time and place",
-            message: "Use capture dates, folders and GPS metadata to find media quickly.",
-            image: "calendar.badge.clock"
+            message: "Use created dates, folders, favorites, albums, and GPS metadata to find media quickly."
         ),
         OnboardingPage(
             title: "Choose folders to catalogue",
-            message: "Select one or more folders. DriveLens stores catalogue data in `.drivelens` at the storage root. Original photos and videos are not changed.",
-            image: "folder.badge.plus"
+            message: "Select folders on the same storage device. DriveLens stores catalogue data in `.drivelens` on that device. Original photos and videos are not changed."
         )
     ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 30)
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .underPageBackgroundColor).opacity(0.72)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
-            VStack(spacing: 26) {
-                DriveLensLogoView(size: 92, showsSubtleBackground: true)
+            VStack(spacing: 0) {
+                Spacer(minLength: 32)
 
-                VStack(spacing: 10) {
-                    Image(systemName: pages[step].image)
-                        .font(.system(size: 25, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                        .symbolRenderingMode(.hierarchical)
-                        .frame(width: 52, height: 52)
-                        .background(Color.accentColor.opacity(0.11), in: RoundedRectangle(cornerRadius: 13))
-                        .accessibilityHidden(true)
+                VStack(spacing: 24) {
+                    VStack(spacing: 12) {
+                        DriveLensLogoView(size: 96, showsSubtleBackground: true)
+                            .accessibilityLabel("DriveLens app icon")
 
-                    Text(pages[step].title)
-                        .font(.system(size: 32, weight: .semibold))
-                        .multilineTextAlignment(.center)
-                    Text(pages[step].message)
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 620)
+                        Text("DriveLens")
+                            .font(.title2.weight(.semibold))
+                    }
+
+                    VStack(spacing: 10) {
+                        Text("Step \(step + 1) of \(pages.count)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .monospacedDigit()
+
+                        Text(pages[step].title)
+                            .font(.system(size: 34, weight: .semibold))
+                            .multilineTextAlignment(.center)
+
+                        Text(pages[step].message)
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(2)
+                            .frame(maxWidth: 620)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .id(step)
+                    .transition(reduceMotion ? .identity : .opacity)
+
+                    if step == 2 {
+                        folderSelectionPanel
+                            .transition(reduceMotion ? .identity : .opacity.combined(with: .move(edge: .bottom)))
+                    } else {
+                        OnboardingAssuranceStrip()
+                            .transition(reduceMotion ? .identity : .opacity)
+                    }
                 }
+                .frame(maxWidth: 780)
+                .padding(.horizontal, 44)
 
-                if step == 2 {
-                    folderSelectionPanel
+                Spacer(minLength: 28)
+
+                VStack(spacing: 18) {
+                    StepIndicator(count: pages.count, selectedIndex: step)
+                    footer
                 }
+                .padding(.horizontal, 48)
+                .padding(.bottom, 34)
             }
-            .frame(maxWidth: 760)
-            .padding(.horizontal, 44)
-
-            Spacer(minLength: 28)
-
-            VStack(spacing: 18) {
-                StepIndicator(count: pages.count, selectedIndex: step)
-                footer
-            }
-            .padding(.horizontal, 48)
-            .padding(.bottom, 34)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             appState.refreshSavedCatalogues()
             if !appState.savedCatalogues.isEmpty && appState.activeCatalogue == nil && appState.selectedRootURL == nil {
@@ -92,6 +113,7 @@ struct OnboardingView: View {
                     Label("Continue", systemImage: "chevron.right")
                 }
                 .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
             } else {
                 Button {
                     Task { await appState.createCatalogueByChoosingFolders() }
@@ -99,6 +121,7 @@ struct OnboardingView: View {
                     Label("Choose Folders", systemImage: "folder.badge.plus")
                 }
                 .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
             }
         }
         .controlSize(.large)
@@ -164,11 +187,12 @@ private struct CatalogueChooserPanel: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.primary.opacity(0.09), lineWidth: 1)
         }
+        .shadow(color: .black.opacity(0.1), radius: 18, y: 8)
     }
 }
 
@@ -185,7 +209,7 @@ private struct CatalogueChooserHeader: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Create From Folders")
                         .font(.headline)
-                    Text("Pick one or more folders. Original photos and videos are not changed. DriveLens stores catalogue data in `.drivelens` at the storage root.")
+                    Text("Pick one or more folders on the same storage device. Original photos and videos are not changed. DriveLens stores catalogue data in `.drivelens` inside a selected folder.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -195,7 +219,7 @@ private struct CatalogueChooserHeader: View {
             HStack(spacing: 8) {
                 CatalogueSetupBadge(title: "Originals unchanged", systemImage: "checkmark.shield")
                 CatalogueSetupBadge(title: "Local catalogue", systemImage: "lock.shield")
-                CatalogueSetupBadge(title: "Storage-root catalogue", systemImage: "folder")
+                CatalogueSetupBadge(title: "Stored with media", systemImage: "folder")
             }
         }
     }
@@ -218,6 +242,19 @@ private struct CatalogueSetupBadge: View {
                 RoundedRectangle(cornerRadius: 7)
                     .stroke(Color.primary.opacity(0.07), lineWidth: 1)
             }
+    }
+}
+
+private struct OnboardingAssuranceStrip: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            CatalogueSetupBadge(title: "Originals unchanged", systemImage: "checkmark.shield")
+            CatalogueSetupBadge(title: "Private catalogue", systemImage: "lock.shield")
+            CatalogueSetupBadge(title: "Stored with media", systemImage: "externaldrive")
+        }
+        .frame(maxWidth: 620)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Originals unchanged. Private catalogue. Stored with media.")
     }
 }
 
@@ -308,10 +345,9 @@ private struct SavedCatalogueRow: View {
                     }
                 }
             } label: {
-                Label("More", systemImage: "ellipsis.circle")
+                OptionsMenuLabel(title: "Catalogue actions")
             }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
+            .menuStyle(.borderlessButton)
             .controlSize(.small)
             .help("Catalogue actions")
             .accessibilityLabel("Catalogue actions")
@@ -448,7 +484,7 @@ private struct SavedCatalogueRow: View {
             return "Disconnected"
         }
         if catalogue.isNamedCatalogue {
-            return catalogue.path.contains("/.drivelens/catalogues/") ? "Storage Root" : "On Mac"
+            return catalogue.path.contains("/.drivelens/catalogues/") ? "Mapped Storage" : "On Mac"
         }
         return "Legacy"
     }
@@ -514,5 +550,4 @@ private struct StepIndicator: View {
 private struct OnboardingPage {
     let title: String
     let message: String
-    let image: String
 }

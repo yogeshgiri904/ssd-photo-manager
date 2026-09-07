@@ -4,8 +4,10 @@ import SwiftUI
 enum TimelineControlScope {
     case none
     case timeline
+    case videos
     case recentlyAdded
     case smartAlbums
+    case search
 }
 
 struct TimelineView: View {
@@ -48,10 +50,14 @@ struct TimelineView: View {
         switch controlScope {
         case .timeline:
             return appState.timelineSort
+        case .videos:
+            return appState.videoSort
         case .recentlyAdded:
             return appState.recentlyAddedSort
         case .smartAlbums:
             return appState.smartAlbumSort
+        case .search:
+            return appState.searchSort
         case .none:
             return .captureNewest
         }
@@ -243,11 +249,9 @@ struct TimelineView: View {
         } actions: {
             if title == "Search" && hasActiveSearch {
                 Button {
-                    appState.searchText = ""
-                    appState.activeFilters = SearchFilters()
-                    appState.refreshSearchResultCount()
+                    appState.clearSearch()
                 } label: {
-                    Label("Clear Search", systemImage: "xmark.circle")
+                    Label("Clear Search and Filters", systemImage: "xmark.circle")
                 }
             } else {
                 Button {
@@ -307,7 +311,10 @@ struct TimelineView: View {
     }
 
     private var hasActiveSearch: Bool {
-        !appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.activeFilters != SearchFilters()
+        !appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || appState.searchQuickFilter != .all
+            || appState.selectedSearchYear != nil
+            || appState.searchSort != .captureNewest
     }
 
     private func jumpStrip(proxy: ScrollViewProxy) -> some View {
@@ -555,33 +562,42 @@ private struct TimelineHeader: View {
 
     var body: some View {
         if controlScope != .none {
-            mainTimelineHeader
+            controlledHeader
         } else {
             compactHeader
         }
     }
 
-    private var mainTimelineHeader: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 16) {
-                    titleBlock
-                    Spacer(minLength: 16)
-                    metrics
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    titleBlock
-                    metrics
-                }
-            }
-
-            filterAndSortRow
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 10)
-        .padding(.bottom, 10)
-        .background(Color(nsColor: .windowBackgroundColor))
+    private var controlledHeader: some View {
+        CatalogueControlsHeader(
+            title: title,
+            systemImage: headerSystemImage,
+            summary: summary,
+            counts: resolvedCounts,
+            filters: availableQuickFilters,
+            selectedFilter: activeQuickFilter,
+            filterCount: quickFilterCount(for:),
+            selectedSort: activeSort,
+            selectedYear: selectedYear,
+            years: years,
+            gridSize: $appState.gridSize,
+            hasActiveControls: hasActiveTimelineControls,
+            resetLabel: "Reset Filters and Sorting",
+            backAction: backAction,
+            onSelectFilter: { filter in
+                Task { await setQuickFilter(filter) }
+            },
+            onSelectSort: { sort in
+                Task { await setSort(sort) }
+            },
+            onSelectYear: { year in
+                Task { await setYear(year) }
+            },
+            onReset: {
+                Task { await resetControls() }
+            },
+            accessory: EmptyView()
+        )
     }
 
     private var compactHeader: some View {
@@ -630,155 +646,11 @@ private struct TimelineHeader: View {
         }
     }
 
-    private var filterAndSortRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 8) {
-                quickFilters
-                    .frame(minWidth: 300, maxWidth: .infinity, alignment: .leading)
-
-                Divider()
-                    .frame(height: 24)
-
-                compactViewControls
-            }
-
-            VStack(alignment: .leading, spacing: 7) {
-                quickFilters
-                compactViewControls
-            }
-        }
-        .controlSize(.small)
-        .padding(5)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
-        }
-    }
-
-    private var compactViewControls: some View {
-        HStack(spacing: 7) {
-            sortMenu
-            yearMenu
-            gridSizeControl
-
-            if hasActiveTimelineControls {
-                Button {
-                    Task { await resetControls() }
-                } label: {
-                    Label("Reset Filters", systemImage: "arrow.counterclockwise")
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.bordered)
-                .help("Reset filters and sorting")
-                .accessibilityLabel("Reset filters and sorting")
-            }
-        }
-    }
-
     private var metrics: some View {
         HStack(spacing: 8) {
-            HeaderMetric(systemImage: "photo", value: "\(photoCount)", label: "Photos")
-            HeaderMetric(systemImage: "film", value: "\(videoCount)", label: "Videos")
+            CatalogueHeaderMetric(systemImage: "photo", value: photoCount, label: "Photos")
+            CatalogueHeaderMetric(systemImage: "film", value: videoCount, label: "Videos")
         }
-    }
-
-    private var sortMenu: some View {
-        Menu {
-            ForEach(TimelineSortOption.allCases) { sort in
-                Button {
-                    Task { await setSort(sort) }
-                } label: {
-                    Label(sort.title, systemImage: sort == activeSort ? "checkmark" : sort.systemImage)
-                }
-            }
-        } label: {
-            TimelineMenuLabel(
-                title: "Sort",
-                value: activeSort.title,
-                systemImage: activeSort.systemImage
-            )
-            .frame(width: 128, alignment: .leading)
-        }
-        .menuStyle(.button)
-        .help("Sort media")
-    }
-
-    private var yearMenu: some View {
-        Menu {
-            Button {
-                Task { await setYear(nil) }
-            } label: {
-                Label("All Years", systemImage: selectedYear == nil ? "checkmark" : "calendar")
-            }
-
-            Divider()
-
-            ForEach(years, id: \.self) { year in
-                Button {
-                    Task { await setYear(year) }
-                } label: {
-                    Label(String(year), systemImage: selectedYear == year ? "checkmark" : "calendar")
-                }
-            }
-        } label: {
-            TimelineMenuLabel(title: "Year", value: selectedYearTitle, systemImage: "calendar")
-                .frame(width: 92, alignment: .leading)
-        }
-        .menuStyle(.button)
-        .disabled(years.isEmpty)
-        .help("Filter by capture year")
-    }
-
-    private var gridSizeControl: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "square.grid.2x2")
-                .foregroundStyle(.secondary)
-            Slider(value: $appState.gridSize, in: 92...220)
-                .frame(width: 78)
-            Image(systemName: "square.grid.3x3")
-                .foregroundStyle(.secondary)
-        }
-        .font(.caption)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        }
-        .help("Adjust thumbnail size")
-    }
-
-    private var quickFilters: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .labelStyle(.titleAndIcon)
-                    .padding(.leading, 5)
-
-                ForEach(TimelineQuickFilter.allCases) { filter in
-                    QuickFilterPill(
-                        filter: filter,
-                        count: quickFilterCount(for: filter),
-                        isSelected: activeQuickFilter == filter
-                    ) {
-                        Task {
-                            await setQuickFilter(filter)
-                        }
-                    }
-                }
-            }
-            .padding(4)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-            }
-        }
-        .accessibilityLabel("Quick filters")
     }
 
     private var photoCount: Int {
@@ -789,18 +661,57 @@ private struct TimelineHeader: View {
         counts?.videos ?? items.filter { $0.kind == .video }.count
     }
 
-    private var selectedYearTitle: String {
-        selectedYear.map(String.init) ?? "All Years"
+    private var resolvedCounts: CatalogueCounts {
+        counts ?? items.reduce(into: CatalogueCounts.zero) { result, item in
+            result.totalItems += 1
+            if item.kind == .video {
+                result.videos += 1
+            } else {
+                result.photos += 1
+            }
+            if item.coordinate == nil {
+                result.missingLocationItems += 1
+            } else {
+                result.locatedItems += 1
+            }
+        }
+    }
+
+    private var headerSystemImage: String {
+        switch controlScope {
+        case .timeline: "rectangle.stack.fill"
+        case .videos: "film.fill"
+        case .recentlyAdded: "clock.fill"
+        case .smartAlbums: "sparkles.rectangle.stack"
+        case .search: "magnifyingglass"
+        case .none: "photo.stack"
+        }
+    }
+
+    private var availableQuickFilters: [TimelineQuickFilter] {
+        switch controlScope {
+        case .videos:
+            return [.all, .withLocation, .withoutLocation]
+        default:
+            return TimelineQuickFilter.allCases
+        }
     }
 
     private var hasActiveTimelineControls: Bool {
         switch controlScope {
         case .timeline:
             return appState.timelineQuickFilter != .all || appState.selectedTimelineYear != nil || appState.timelineSort != .captureNewest
+        case .videos:
+            return appState.videoQuickFilter != .all || appState.selectedVideoYear != nil || appState.videoSort != .captureNewest
         case .recentlyAdded:
             return appState.recentlyAddedQuickFilter != .all || appState.selectedRecentlyAddedYear != nil || appState.recentlyAddedSort != .recentlyAdded
         case .smartAlbums:
             return appState.smartAlbumQuickFilter != .all || appState.selectedSmartAlbumYear != nil || appState.smartAlbumSort != .captureNewest
+        case .search:
+            return !appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || appState.searchQuickFilter != .all
+                || appState.selectedSearchYear != nil
+                || appState.searchSort != .captureNewest
         case .none:
             return false
         }
@@ -823,10 +734,14 @@ private struct TimelineHeader: View {
         switch controlScope {
         case .timeline:
             return appState.timelineQuickFilter
+        case .videos:
+            return appState.videoQuickFilter
         case .recentlyAdded:
             return appState.recentlyAddedQuickFilter
         case .smartAlbums:
             return appState.smartAlbumQuickFilter
+        case .search:
+            return appState.searchQuickFilter
         case .none:
             return .all
         }
@@ -836,10 +751,14 @@ private struct TimelineHeader: View {
         switch controlScope {
         case .timeline:
             return appState.selectedTimelineYear
+        case .videos:
+            return appState.selectedVideoYear
         case .recentlyAdded:
             return appState.selectedRecentlyAddedYear
         case .smartAlbums:
             return appState.selectedSmartAlbumYear
+        case .search:
+            return appState.selectedSearchYear
         case .none:
             return nil
         }
@@ -849,10 +768,14 @@ private struct TimelineHeader: View {
         switch controlScope {
         case .timeline:
             return appState.timelineYears
+        case .videos:
+            return appState.videoYears
         case .recentlyAdded:
             return appState.recentlyAddedYears
         case .smartAlbums:
             return appState.smartAlbumYears
+        case .search:
+            return appState.searchYears
         case .none:
             return []
         }
@@ -862,10 +785,14 @@ private struct TimelineHeader: View {
         switch controlScope {
         case .timeline:
             return appState.timelineSort
+        case .videos:
+            return appState.videoSort
         case .recentlyAdded:
             return appState.recentlyAddedSort
         case .smartAlbums:
             return appState.smartAlbumSort
+        case .search:
+            return appState.searchSort
         case .none:
             return .captureNewest
         }
@@ -875,10 +802,14 @@ private struct TimelineHeader: View {
         switch controlScope {
         case .timeline:
             return appState.quickFilterCount(for: filter)
+        case .videos:
+            return appState.videoQuickFilterCount(for: filter)
         case .recentlyAdded:
             return appState.recentlyAddedQuickFilterCount(for: filter)
         case .smartAlbums:
             return appState.smartAlbumQuickFilterCount(for: filter)
+        case .search:
+            return appState.searchQuickFilterCount(for: filter)
         case .none:
             return 0
         }
@@ -888,10 +819,14 @@ private struct TimelineHeader: View {
         switch controlScope {
         case .timeline:
             await appState.setTimelineQuickFilter(filter)
+        case .videos:
+            await appState.setVideoQuickFilter(filter)
         case .recentlyAdded:
             await appState.setRecentlyAddedQuickFilter(filter)
         case .smartAlbums:
             await appState.setSmartAlbumQuickFilter(filter)
+        case .search:
+            appState.setSearchQuickFilter(filter)
         case .none:
             break
         }
@@ -901,10 +836,14 @@ private struct TimelineHeader: View {
         switch controlScope {
         case .timeline:
             await appState.setTimelineYear(year)
+        case .videos:
+            await appState.setVideoYear(year)
         case .recentlyAdded:
             await appState.setRecentlyAddedYear(year)
         case .smartAlbums:
             await appState.setSmartAlbumYear(year)
+        case .search:
+            appState.setSearchYear(year)
         case .none:
             break
         }
@@ -914,10 +853,14 @@ private struct TimelineHeader: View {
         switch controlScope {
         case .timeline:
             await appState.setTimelineSort(sort)
+        case .videos:
+            await appState.setVideoSort(sort)
         case .recentlyAdded:
             await appState.setRecentlyAddedSort(sort)
         case .smartAlbums:
             await appState.setSmartAlbumSort(sort)
+        case .search:
+            appState.setSearchSort(sort)
         case .none:
             break
         }
@@ -927,95 +870,17 @@ private struct TimelineHeader: View {
         switch controlScope {
         case .timeline:
             await appState.resetTimelineControls()
+        case .videos:
+            await appState.resetVideoControls()
         case .recentlyAdded:
             await appState.resetRecentlyAddedControls()
         case .smartAlbums:
             await appState.resetSmartAlbumControls()
+        case .search:
+            appState.resetSearchControls()
         case .none:
             break
         }
-    }
-}
-
-private struct TimelineMenuLabel: View {
-    let title: String
-    let value: String
-    let systemImage: String
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
-            Text(title)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .fontWeight(.medium)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-        .font(.caption)
-        .frame(minWidth: 0, alignment: .leading)
-        .accessibilityLabel("\(title): \(value)")
-    }
-}
-
-private struct HeaderMetric: View {
-    let systemImage: String
-    let value: String
-    let label: String
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.callout.weight(.semibold))
-                .monospacedDigit()
-            Text(label)
-                .foregroundStyle(.secondary)
-        }
-        .font(.callout)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        }
-    }
-}
-
-private struct QuickFilterPill: View {
-    let filter: TimelineQuickFilter
-    let count: Int
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: filter.systemImage)
-                    .font(.caption.weight(.semibold))
-                Text(filter.title)
-                Text("\(count)")
-                    .font(.caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(isSelected ? .white.opacity(0.82) : .secondary)
-            }
-            .font(.caption.weight(isSelected ? .semibold : .regular))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .foregroundStyle(isSelected ? .white : .primary)
-            .background(isSelected ? Color.accentColor : Color.clear, in: Capsule())
-            .overlay {
-                Capsule()
-                    .stroke(isSelected ? Color.clear : Color.primary.opacity(0.08), lineWidth: 1)
-            }
-        }
-        .buttonStyle(.plain)
-        .help("Show \(filter.title)")
-        .accessibilityLabel("\(filter.title), \(count) items")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

@@ -23,7 +23,7 @@ struct MetadataInspectorView: View {
                 InspectorActionBar(item: item)
 
                 InspectorSection("Essentials") {
-                    InspectorRow("Capture Date", item.captureDateLocalText)
+                    InspectorRow("Created Date", item.captureDateLocalText)
                     InspectorRow("Date Source", item.dateSource.label)
                     InspectorRow("Location", item.placeText.isEmpty ? item.locationSource.label : item.placeText)
                     InspectorRow("Filename", item.filename)
@@ -349,13 +349,25 @@ private struct BatchMetadataPanel: View {
     let items: [MediaItem]
 
     @State private var keyword = ""
+    @State private var replaceKeywords = false
+    @State private var keywordsText = ""
+    @State private var updateCaption = false
     @State private var caption = ""
+    @State private var updateCreatedDate = false
+    @State private var createdDate = Date()
+    @State private var updateCameraDetails = false
+    @State private var cameraMake = ""
+    @State private var cameraModel = ""
+    @State private var lensModel = ""
+    @State private var updateLocation = false
     @State private var latitude = ""
     @State private var longitude = ""
     @State private var city = ""
     @State private var state = ""
     @State private var country = ""
+    @State private var favoriteChoice: BatchFavoriteChoice = .leaveUnchanged
     @State private var albumName = ""
+    @State private var metadataError: String?
 
     private var summary: BatchMetadataSummary {
         appState.batchMetadataSummary(for: items)
@@ -366,92 +378,132 @@ private struct BatchMetadataPanel: View {
             BatchSelectionSummary(items: items)
 
             InspectorSection("Shared Metadata") {
+                InspectorRow("Created Date", createdDateSummaryText)
                 InspectorRow("Keywords", summary.sharedKeywords.isEmpty ? "None shared" : summary.sharedKeywords.joined(separator: ", "))
                 InspectorRow("Caption", summary.hasMixedCaptions ? "Mixed" : summary.commonCaption ?? "None")
+                InspectorRow("Camera", cameraSummaryText)
                 InspectorRow("Location", summary.hasMixedLocations ? "Mixed" : summary.commonLocationText ?? "None")
                 InspectorRow("Favorite", favoriteText)
             }
 
-            InspectorSection("Keywords") {
+            InspectorSection("Edit Metadata") {
+                VStack(alignment: .leading, spacing: 12) {
+                    metadataToggle("Created Date", systemImage: "calendar", isOn: $updateCreatedDate) {
+                        DatePicker(
+                            "Created Date",
+                            selection: $createdDate,
+                            displayedComponents: [.date, .hourAndMinute]
+                        )
+                        .labelsHidden()
+                        .datePickerStyle(.compact)
+                        .accessibilityLabel("Created date")
+                    }
+
+                    metadataToggle("Keywords", systemImage: "tag", isOn: $replaceKeywords) {
+                        TextField("Comma-separated keywords", text: $keywordsText)
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("Keywords")
+                    }
+
+                    metadataToggle("Caption", systemImage: "text.quote", isOn: $updateCaption) {
+                        TextField(summary.hasMixedCaptions ? "Replace mixed captions" : "Caption", text: $caption)
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("Caption")
+                    }
+
+                    metadataToggle("Camera", systemImage: "camera", isOn: $updateCameraDetails) {
+                        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 8) {
+                            GridRow {
+                                TextField("Make", text: $cameraMake)
+                                TextField("Model", text: $cameraModel)
+                            }
+                            GridRow {
+                                TextField("Lens", text: $lensModel)
+                                    .gridCellColumns(2)
+                            }
+                        }
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityElement(children: .contain)
+                    }
+
+                    metadataToggle("Location", systemImage: "mappin.and.ellipse", isOn: $updateLocation) {
+                        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 8) {
+                            GridRow {
+                                TextField("Latitude", text: $latitude)
+                                TextField("Longitude", text: $longitude)
+                            }
+                            GridRow {
+                                TextField("City", text: $city)
+                                TextField("State", text: $state)
+                            }
+                            GridRow {
+                                TextField("Country", text: $country)
+                                    .gridCellColumns(2)
+                            }
+                        }
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityElement(children: .contain)
+                    }
+
+                    HStack(spacing: 9) {
+                        Label("Favorite", systemImage: "heart")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 104, alignment: .leading)
+
+                        Picker("Favorite", selection: $favoriteChoice) {
+                            ForEach(BatchFavoriteChoice.allCases) { choice in
+                                Text(choice.label).tag(choice)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .accessibilityLabel("Favorite")
+                    }
+
+                    if let metadataError {
+                        Text(metadataError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .accessibilityLabel(metadataError)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button {
+                            applyMetadataEdits()
+                        } label: {
+                            Label("Apply Changes", systemImage: "checkmark.circle")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(!hasPendingMetadataChange)
+
+                        Button {
+                            resetEditableFields()
+                        } label: {
+                            Label("Reset", systemImage: "arrow.counterclockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+                .padding(10)
+            }
+
+            InspectorSection("Add Keyword") {
                 VStack(alignment: .leading, spacing: 8) {
-                    TextField("Add keyword", text: $keyword)
+                    TextField("Keyword", text: $keyword)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit { addKeyword() }
+                        .accessibilityLabel("Keyword to add")
                     Button {
                         addKeyword()
                     } label: {
                         Label("Add Keyword", systemImage: "tag")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
                     .disabled(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                .padding(10)
-            }
-
-            InspectorSection("Caption") {
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField(summary.hasMixedCaptions ? "Replace mixed captions" : "Set caption", text: $caption)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { setCaption() }
-                    Button {
-                        setCaption()
-                    } label: {
-                        Label("Apply Caption", systemImage: "text.quote")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-                .padding(10)
-            }
-
-            InspectorSection("Location") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 8) {
-                        GridRow {
-                            TextField("Latitude", text: $latitude)
-                            TextField("Longitude", text: $longitude)
-                        }
-                        GridRow {
-                            TextField("City", text: $city)
-                            TextField("State", text: $state)
-                        }
-                        GridRow {
-                            TextField("Country", text: $country)
-                                .gridCellColumns(2)
-                        }
-                    }
-                    .textFieldStyle(.roundedBorder)
-
-                    Button {
-                        setLocation()
-                    } label: {
-                        Label("Set Location", systemImage: "mappin.and.ellipse")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(latitude.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || longitude.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                .padding(10)
-            }
-
-            InspectorSection("Favorite") {
-                HStack(spacing: 8) {
-                    Button {
-                        Task { await appState.setFavorite(true, for: items) }
-                    } label: {
-                        Label("Mark as Favorite", systemImage: "heart.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-
-                    Button {
-                        Task { await appState.setFavorite(false, for: items) }
-                    } label: {
-                        Label("Remove from Favorites", systemImage: "heart.slash")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
                 .padding(10)
             }
@@ -489,16 +541,61 @@ private struct BatchMetadataPanel: View {
             }
         }
         .onAppear {
-            caption = summary.commonCaption ?? ""
+            resetEditableFields()
         }
         .onChange(of: items.map(\.id)) { _, _ in
-            caption = summary.commonCaption ?? ""
+            resetEditableFields()
+        }
+    }
+
+    @ViewBuilder
+    private func metadataToggle<Content: View>(
+        _ title: String,
+        systemImage: String,
+        isOn: Binding<Bool>,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Toggle(isOn: isOn) {
+                Label(title, systemImage: systemImage)
+                    .font(.caption.weight(.semibold))
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityLabel(title)
+
+            content()
+                .disabled(!isOn.wrappedValue)
+                .opacity(isOn.wrappedValue ? 1 : 0.55)
+                .padding(.leading, 22)
         }
     }
 
     private var favoriteText: String {
         guard let isFavorite = summary.commonFavorite else { return "Mixed" }
         return isFavorite ? "Yes" : "No"
+    }
+
+    private var createdDateSummaryText: String {
+        summary.hasMixedCaptureDates ? "Mixed" : summary.commonCaptureDate.map(formatDate) ?? "None"
+    }
+
+    private var cameraSummaryText: String {
+        if summary.hasMixedCameraDetails {
+            return "Mixed"
+        }
+        let camera = [summary.commonCameraMake, summary.commonCameraModel, summary.commonLensModel]
+            .compactMap { $0?.nilIfEmpty }
+            .joined(separator: " ")
+        return camera.isEmpty ? "None" : camera
+    }
+
+    private var hasPendingMetadataChange: Bool {
+        replaceKeywords
+            || updateCaption
+            || updateCreatedDate
+            || updateCameraDetails
+            || updateLocation
+            || favoriteChoice != .leaveUnchanged
     }
 
     private func addKeyword() {
@@ -508,27 +605,126 @@ private struct BatchMetadataPanel: View {
         Task { await appState.addKeyword(value, to: items) }
     }
 
-    private func setCaption() {
-        Task { await appState.setCaption(caption, for: items) }
-    }
-
-    private func setLocation() {
-        Task {
-            await appState.setLocation(
-                latitudeText: latitude,
-                longitudeText: longitude,
-                city: city,
-                state: state,
-                country: country,
-                for: items
-            )
+    private func applyMetadataEdits() {
+        metadataError = nil
+        let coordinates = parsedCoordinates()
+        if let error = coordinates.error {
+            metadataError = error
+            return
         }
+
+        let update = BatchMetadataUpdate(
+            replaceKeywords: replaceKeywords ? parsedKeywords(from: keywordsText) : nil,
+            caption: updateCaption ? caption : nil,
+            createdDate: updateCreatedDate ? createdDate : nil,
+            cameraMake: cameraMake.nilIfEmpty,
+            cameraModel: cameraModel.nilIfEmpty,
+            lensModel: lensModel.nilIfEmpty,
+            updatesCameraDetails: updateCameraDetails,
+            latitude: coordinates.latitude,
+            longitude: coordinates.longitude,
+            city: city.nilIfEmpty,
+            state: state.nilIfEmpty,
+            country: country.nilIfEmpty,
+            updatesLocation: updateLocation,
+            favorite: favoriteChoice.favoriteValue
+        )
+
+        Task { await appState.applyBatchMetadataUpdate(update, to: items) }
     }
 
     private func addToAlbum() {
         let value = albumName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
         Task { await appState.addToCustomAlbum(named: value, items: items) }
+    }
+
+    private func resetEditableFields() {
+        replaceKeywords = false
+        updateCaption = false
+        updateCreatedDate = false
+        updateCameraDetails = false
+        updateLocation = false
+        favoriteChoice = .leaveUnchanged
+        metadataError = nil
+        keywordsText = summary.commonKeywords?.joined(separator: ", ") ?? ""
+        caption = summary.commonCaption ?? ""
+        createdDate = summary.commonCaptureDate ?? items.first?.captureDate ?? Date()
+        cameraMake = summary.commonCameraMake ?? ""
+        cameraModel = summary.commonCameraModel ?? ""
+        lensModel = summary.commonLensModel ?? ""
+
+        if !summary.hasMixedLocations, let first = items.first {
+            latitude = first.latitude.map { String(format: "%.6f", $0) } ?? ""
+            longitude = first.longitude.map { String(format: "%.6f", $0) } ?? ""
+            city = first.city ?? ""
+            state = first.state ?? ""
+            country = first.country ?? ""
+        } else {
+            latitude = ""
+            longitude = ""
+            city = ""
+            state = ""
+            country = ""
+        }
+    }
+
+    private func parsedCoordinates() -> (latitude: Double?, longitude: Double?, error: String?) {
+        guard updateLocation else { return (nil, nil, nil) }
+        let latitudeText = latitude.trimmingCharacters(in: .whitespacesAndNewlines)
+        let longitudeText = longitude.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !latitudeText.isEmpty || !longitudeText.isEmpty else {
+            return (nil, nil, nil)
+        }
+        guard !latitudeText.isEmpty, !longitudeText.isEmpty else {
+            return (nil, nil, "Enter both latitude and longitude, or leave both blank.")
+        }
+        guard let latitude = Double(latitudeText),
+              let longitude = Double(longitudeText),
+              (-90...90).contains(latitude),
+              (-180...180).contains(longitude) else {
+            return (nil, nil, "Enter a valid latitude and longitude.")
+        }
+        return (latitude, longitude, nil)
+    }
+
+    private func parsedKeywords(from text: String) -> [String] {
+        var seen = Set<String>()
+        return text
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0.localizedLowercase).inserted }
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+private enum BatchFavoriteChoice: String, CaseIterable, Identifiable {
+    case leaveUnchanged
+    case favorite
+    case notFavorite
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .leaveUnchanged: "Leave Unchanged"
+        case .favorite: "Mark as Favorite"
+        case .notFavorite: "Remove from Favorites"
+        }
+    }
+
+    var favoriteValue: Bool? {
+        switch self {
+        case .leaveUnchanged: nil
+        case .favorite: true
+        case .notFavorite: false
+        }
     }
 }
 
@@ -586,6 +782,13 @@ private struct MiniCount: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
         .background(.quaternary.opacity(0.35), in: Capsule())
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

@@ -261,13 +261,13 @@ struct SecurityScopedBookmarkStore {
     }
 
     func createCatalogue(named rawName: String) throws -> SavedCatalogue {
-        try createCatalogue(named: rawName, storageRootURL: nil)
+        try createCatalogue(named: rawName, storageFolderURL: nil)
     }
 
-    func createCatalogue(named rawName: String, storageRootURL: URL?) throws -> SavedCatalogue {
+    func createCatalogue(named rawName: String, storageFolderURL: URL?) throws -> SavedCatalogue {
         let name = sanitizedCatalogueName(rawName)
         let id = UUID().uuidString
-        let directory = try catalogueDirectory(id: id, storageRootURL: storageRootURL)
+        let directory = try catalogueDirectory(id: id, storageFolderURL: storageFolderURL)
         let cataloguesDirectory = directory.deletingLastPathComponent()
         let catalogue = SavedCatalogue(
             id: id,
@@ -331,6 +331,15 @@ struct SecurityScopedBookmarkStore {
         }
 
         updated.sources = sources
+        saveCatalogue(updated)
+        return updated
+    }
+
+    func removeSource(id sourceID: CatalogueSource.ID, from catalogue: SavedCatalogue) -> SavedCatalogue {
+        guard catalogue.isNamedCatalogue else { return catalogue }
+
+        var updated = catalogue
+        updated.sources = catalogue.sourceList.filter { $0.id != sourceID }
         saveCatalogue(updated)
         return updated
     }
@@ -414,10 +423,10 @@ struct SecurityScopedBookmarkStore {
         return directory
     }
 
-    private func catalogueDirectory(id: String, storageRootURL: URL?) throws -> URL {
+    private func catalogueDirectory(id: String, storageFolderURL: URL?) throws -> URL {
         let directory: URL
-        if let storageRootURL {
-            directory = storageRootURL
+        if let storageFolderURL {
+            directory = storageFolderURL
                 .standardizedFileURL
                 .appendingPathComponent(".drivelens", isDirectory: true)
                 .appendingPathComponent("catalogues", isDirectory: true)

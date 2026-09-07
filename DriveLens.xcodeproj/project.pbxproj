@@ -38,6 +38,7 @@
 		00000000000000000000011D /* Views/AppInfo/AppInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000021F /* Views/AppInfo/AppInfoView.swift */; };
 		00000000000000000000011E /* Views/SmartAlbums/SmartAlbumsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000220 /* Views/SmartAlbums/SmartAlbumsView.swift */; };
 		00000000000000000000011F /* Views/Components/MediaQuickActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000221 /* Views/Components/MediaQuickActions.swift */; };
+		000000000000000000000120 /* Views/Components/MediaQuickFilterBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000222 /* Views/Components/MediaQuickFilterBar.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -75,6 +76,7 @@
 		00000000000000000000021F /* Views/AppInfo/AppInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AppInfo/AppInfoView.swift; sourceTree = "<group>"; };
 		000000000000000000000220 /* Views/SmartAlbums/SmartAlbumsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SmartAlbums/SmartAlbumsView.swift; sourceTree = "<group>"; };
 		000000000000000000000221 /* Views/Components/MediaQuickActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Components/MediaQuickActions.swift; sourceTree = "<group>"; };
+		000000000000000000000222 /* Views/Components/MediaQuickFilterBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Components/MediaQuickFilterBar.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -130,6 +132,7 @@
 				00000000000000000000021F /* Views/AppInfo/AppInfoView.swift */,
 				000000000000000000000220 /* Views/SmartAlbums/SmartAlbumsView.swift */,
 				000000000000000000000221 /* Views/Components/MediaQuickActions.swift */,
+				000000000000000000000222 /* Views/Components/MediaQuickFilterBar.swift */,
 				00000000000000000000021C /* Assets.xcassets */,
 				000000000000000000000219 /* Info.plist */,
 				00000000000000000000021A /* DriveLens.entitlements */,
@@ -251,6 +254,7 @@
 				00000000000000000000011D /* Views/AppInfo/AppInfoView.swift in Sources */,
 				00000000000000000000011E /* Views/SmartAlbums/SmartAlbumsView.swift in Sources */,
 				00000000000000000000011F /* Views/Components/MediaQuickActions.swift in Sources */,
+				000000000000000000000120 /* Views/Components/MediaQuickFilterBar.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

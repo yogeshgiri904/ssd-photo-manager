@@ -6,13 +6,13 @@ struct MediaViewer: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isKeyboardFocused: Bool
+    @StateObject private var videoController = VideoPlaybackController()
     var closeAction: (() -> Void)?
     @GestureState private var gestureScale: CGFloat = 1
     @State private var image: NSImage?
     @State private var imageLoadFailed = false
     @State private var baseScale: CGFloat = 1
     @State private var rotation: Angle = .zero
-    @State private var player: AVPlayer?
     @State private var interactionMessage: String?
     @State private var interactionMessageTask: Task<Void, Never>?
 
@@ -28,14 +28,15 @@ struct MediaViewer: View {
                         item: item,
                         scale: displayScale,
                         isImage: item.kind != .video,
+                        isVideoPlaying: videoController.isPlaying,
+                        canControlVideo: videoController.canControlPlayback,
                         close: closeViewer,
-                        previous: { navigateSelection(offset: -1) },
-                        next: { navigateSelection(offset: 1) },
                         zoomOut: { zoomOut(showFeedback: true) },
                         zoomIn: { zoomIn(showFeedback: true) },
                         fit: { fitImage(showFeedback: true) },
                         actualSize: { actualSize(showFeedback: true) },
                         rotate: { rotateImage(showFeedback: true) },
+                        toggleVideoPlayback: togglePlayback,
                         reveal: { appState.revealInFinder(item) },
                         copy: { appState.copyOriginal(item) },
                         share: { appState.shareOriginal(item) },
@@ -82,8 +83,7 @@ struct MediaViewer: View {
         }
         .onDisappear {
             interactionMessageTask?.cancel()
-            player?.pause()
-            player = nil
+            videoController.reset()
         }
         .onExitCommand {
             closeViewer()
@@ -111,6 +111,7 @@ struct MediaViewer: View {
                     if let image {
                         CenteredZoomImageView(
                             image: image,
+                            itemID: item.id,
                             scale: displayScale,
                             rotation: rotation,
                             stageSize: stageSize
@@ -138,6 +139,13 @@ struct MediaViewer: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+
+                    ViewerNavigationOverlay(
+                        canGoPrevious: appState.canSelectAdjacentItem(offset: -1),
+                        canGoNext: appState.canSelectAdjacentItem(offset: 1),
+                        previous: { navigateSelection(offset: -1) },
+                        next: { navigateSelection(offset: 1) }
+                    )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .gesture(
@@ -171,37 +179,50 @@ struct MediaViewer: View {
             ZStack {
                 Color.black
 
-                if let player {
+                if let player = videoController.player {
                     AspectFitVideoPlayer(player: player)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if originalURL(for: item) == nil {
-                    ContentUnavailableView {
-                        Label("Video Missing", systemImage: "film.stack")
-                    } description: {
-                        Text("The original video is unavailable. Connect the storage device to continue.")
-                    } actions: {
-                        Button {
-                            closeViewer()
-                        } label: {
-                            Label("Close", systemImage: "xmark")
+
+                    if videoController.failureMessage != nil {
+                        Color.black.opacity(0.72)
+                        videoUnavailableView(for: item)
+                    } else if videoController.isLoading {
+                        ProgressView("Preparing Video")
+                            .controlSize(.large)
+                            .tint(.white)
+                            .foregroundStyle(.white)
+                    } else if videoController.canControlPlayback && !videoController.isPlaying {
+                        Button(action: togglePlayback) {
+                            Label("Play Video", systemImage: "play.fill")
+                                .font(.title2.weight(.semibold))
+                                .labelStyle(.iconOnly)
+                                .foregroundStyle(.white)
+                                .frame(width: 64, height: 64)
+                                .background(.black.opacity(0.58), in: Circle())
+                                .overlay {
+                                    Circle()
+                                        .stroke(.white.opacity(0.36), lineWidth: 1)
+                                }
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Play video")
                     }
-                    .foregroundStyle(.white)
-                } else {
+                } else if videoController.isLoading {
                     ProgressView()
                         .controlSize(.large)
                         .tint(.white)
+                } else {
+                    videoUnavailableView(for: item)
                 }
+
+                ViewerNavigationOverlay(
+                    canGoPrevious: appState.canSelectAdjacentItem(offset: -1),
+                    canGoNext: appState.canSelectAdjacentItem(offset: 1),
+                    previous: { navigateSelection(offset: -1) },
+                    next: { navigateSelection(offset: 1) }
+                )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .simultaneousGesture(videoSeekGesture)
-            .onTapGesture {
-                isKeyboardFocused = true
-            }
-            .onTapGesture(count: 2) {
-                togglePlayback()
-            }
 
             Divider()
 
@@ -211,20 +232,34 @@ struct MediaViewer: View {
     }
 
     private func loadSelectedItem() async {
-        player?.pause()
-        player = nil
+        videoController.reset()
         image = nil
         imageLoadFailed = false
         fitImage()
 
         guard let item = appState.selectedMediaItem else { return }
         guard let url = originalURL(for: item) else {
-            imageLoadFailed = item.kind != .video
+            if item.kind == .video {
+                videoController.setUnavailable(
+                    "The original video is unavailable. Connect the storage device to continue."
+                )
+            } else {
+                imageLoadFailed = true
+            }
             return
         }
 
         if item.kind == .video {
-            player = AVPlayer(url: url)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  FileManager.default.isReadableFile(atPath: url.path) else {
+                videoController.setUnavailable(
+                    "The original video is unavailable. Connect the storage device to continue."
+                )
+                return
+            }
+            await videoController.load(url: url)
         } else if let data = await Task.detached(priority: .userInitiated, operation: {
             try? Data(contentsOf: url, options: [.mappedIfSafe, .uncached])
         }).value, !Task.isCancelled, let loadedImage = NSImage(data: data) {
@@ -261,28 +296,31 @@ struct MediaViewer: View {
             }
     }
 
-    private var videoSeekGesture: some Gesture {
-        DragGesture(minimumDistance: 50)
-            .onEnded { value in
-                guard abs(value.translation.width) > abs(value.translation.height) * 1.4 else { return }
-                guard abs(value.translation.width) > 90 else { return }
-                seekVideo(by: value.translation.width > 0 ? 10 : -10)
-            }
-    }
-
     private func handleMoveCommand(_ direction: MoveCommandDirection) {
         guard let item = appState.selectedMediaItem else { return }
 
         if item.kind == .video {
             switch direction {
             case .left:
-                seekVideo(by: -5)
+                if videoController.isPlaying {
+                    seekVideo(by: -5)
+                } else {
+                    navigateSelection(offset: -1)
+                }
             case .right:
-                seekVideo(by: 5)
+                if videoController.isPlaying {
+                    seekVideo(by: 5)
+                } else {
+                    navigateSelection(offset: 1)
+                }
             case .up:
-                adjustVolume(by: 0.08)
+                if videoController.isPlaying {
+                    adjustVolume(by: 0.08)
+                }
             case .down:
-                adjustVolume(by: -0.08)
+                if videoController.isPlaying {
+                    adjustVolume(by: -0.08)
+                }
             default:
                 break
             }
@@ -307,33 +345,19 @@ struct MediaViewer: View {
     }
 
     private func togglePlayback() {
-        guard let player else { return }
-        if player.timeControlStatus == .playing {
-            player.pause()
-            showInteractionMessage("Paused")
-        } else {
-            player.play()
-            showInteractionMessage("Playing")
+        if let isPlaying = videoController.togglePlayback() {
+            showInteractionMessage(isPlaying ? "Playing" : "Paused")
         }
     }
 
     private func seekVideo(by seconds: Double) {
-        guard let player else { return }
-        let currentSeconds = player.currentTime().seconds
-        guard currentSeconds.isFinite else { return }
-
-        let durationSeconds = player.currentItem?.duration.seconds
-        let upperBound = durationSeconds?.isFinite == true ? durationSeconds ?? .greatestFiniteMagnitude : .greatestFiniteMagnitude
-        let targetSeconds = min(max(0, currentSeconds + seconds), upperBound)
-        let targetTime = CMTime(seconds: targetSeconds, preferredTimescale: 600)
-        player.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        guard videoController.seek(by: seconds) else { return }
         showInteractionMessage(seconds < 0 ? "\(Int(abs(seconds)))s Back" : "\(Int(seconds))s Forward")
     }
 
     private func adjustVolume(by delta: Float) {
-        guard let player else { return }
-        player.volume = min(max(player.volume + delta, 0), 1)
-        showInteractionMessage("Volume \(Int(player.volume * 100))%")
+        guard let volume = videoController.adjustVolume(by: delta) else { return }
+        showInteractionMessage("Volume \(Int(volume * 100))%")
     }
 
     private func fitImage(showFeedback: Bool = false) {
@@ -405,6 +429,30 @@ struct MediaViewer: View {
         appState.mediaURL(for: item)
     }
 
+    private func videoUnavailableView(for item: MediaItem) -> some View {
+        ContentUnavailableView {
+            Label("Video Unavailable", systemImage: "film.stack")
+        } description: {
+            Text(videoController.failureMessage ?? "The video could not be opened.")
+        } actions: {
+            HStack(spacing: 8) {
+                Button {
+                    Task { await loadSelectedItem() }
+                } label: {
+                    Label("Try Again", systemImage: "arrow.clockwise")
+                }
+
+                Button {
+                    appState.revealInFinder(item)
+                } label: {
+                    Label("Reveal in Finder", systemImage: "finder")
+                }
+            }
+        }
+        .foregroundStyle(.white)
+        .accessibilityLabel("Video unavailable")
+    }
+
     private func containedStageSize(in size: CGSize) -> CGSize {
         CGSize(
             width: max(1, size.width - 48),
@@ -417,25 +465,194 @@ struct MediaViewer: View {
     }
 }
 
+@MainActor
+private final class VideoPlaybackController: ObservableObject {
+    private enum LoadState: Equatable {
+        case idle
+        case loading
+        case ready
+        case failed(String)
+    }
+
+    @Published private(set) var player: AVPlayer?
+    @Published private(set) var isPlaying = false
+    @Published private var loadState: LoadState = .idle
+
+    private var representedURL: URL?
+    private var itemStatusObservation: NSKeyValueObservation?
+    private var timeControlObservation: NSKeyValueObservation?
+    private var playbackEndObserver: NSObjectProtocol?
+
+    var isLoading: Bool {
+        loadState == .loading
+    }
+
+    var canControlPlayback: Bool {
+        loadState == .ready && player != nil
+    }
+
+    var failureMessage: String? {
+        guard case .failed(let message) = loadState else { return nil }
+        return message
+    }
+
+    func load(url: URL) async {
+        reset()
+        let requestedURL = url.standardizedFileURL
+        representedURL = requestedURL
+        loadState = .loading
+
+        do {
+            let asset = AVURLAsset(url: requestedURL)
+            let isPlayable = try await asset.load(.isPlayable)
+            guard !Task.isCancelled, representedURL == requestedURL else { return }
+            guard isPlayable else {
+                setFailure("This video format cannot be played on this Mac.")
+                return
+            }
+
+            let playerItem = AVPlayerItem(asset: asset)
+            let preparedPlayer = AVPlayer(playerItem: playerItem)
+            preparedPlayer.actionAtItemEnd = .pause
+            preparedPlayer.preventsDisplaySleepDuringVideoPlayback = true
+            player = preparedPlayer
+            observe(player: preparedPlayer, item: playerItem)
+        } catch {
+            guard representedURL == requestedURL else { return }
+            setFailure("The video could not be opened. Check that the storage device is connected and the file can be read.")
+        }
+    }
+
+    func setUnavailable(_ message: String) {
+        reset()
+        loadState = .failed(message)
+    }
+
+    @discardableResult
+    func togglePlayback() -> Bool? {
+        guard canControlPlayback, let player else { return nil }
+
+        if player.timeControlStatus != .paused {
+            player.pause()
+            isPlaying = false
+            return false
+        }
+
+        if let duration = player.currentItem?.duration.seconds,
+           duration.isFinite,
+           player.currentTime().seconds >= duration - 0.05 {
+            player.seek(to: .zero)
+        }
+        player.play()
+        isPlaying = true
+        return true
+    }
+
+    func seek(by seconds: Double) -> Bool {
+        guard canControlPlayback, let player else { return false }
+        let currentSeconds = player.currentTime().seconds
+        guard currentSeconds.isFinite else { return false }
+
+        let durationSeconds = player.currentItem?.duration.seconds
+        let upperBound = durationSeconds?.isFinite == true
+            ? durationSeconds ?? .greatestFiniteMagnitude
+            : .greatestFiniteMagnitude
+        let targetSeconds = min(max(0, currentSeconds + seconds), upperBound)
+        player.seek(
+            to: CMTime(seconds: targetSeconds, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+        return true
+    }
+
+    func adjustVolume(by delta: Float) -> Float? {
+        guard canControlPlayback, let player else { return nil }
+        player.volume = min(max(player.volume + delta, 0), 1)
+        return player.volume
+    }
+
+    func reset() {
+        itemStatusObservation = nil
+        timeControlObservation = nil
+        if let playbackEndObserver {
+            NotificationCenter.default.removeObserver(playbackEndObserver)
+        }
+        playbackEndObserver = nil
+        representedURL = nil
+        player?.pause()
+        player?.replaceCurrentItem(with: nil)
+        player = nil
+        isPlaying = false
+        loadState = .idle
+    }
+
+    private func observe(player: AVPlayer, item: AVPlayerItem) {
+        itemStatusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] _, _ in
+            Task { @MainActor [weak self, weak item] in
+                guard let self, let item, self.player?.currentItem === item else { return }
+                switch item.status {
+                case .readyToPlay:
+                    self.loadState = .ready
+                case .failed:
+                    self.setFailure("DriveLens could not play this video. The file may use a format or codec that is not supported on this Mac.")
+                case .unknown:
+                    break
+                @unknown default:
+                    break
+                }
+            }
+        }
+
+        timeControlObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self, weak player] _, _ in
+            Task { @MainActor [weak self, weak player] in
+                guard let self, let player, self.player === player else { return }
+                self.isPlaying = player.timeControlStatus != .paused
+            }
+        }
+
+        playbackEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.isPlaying = false
+            }
+        }
+    }
+
+    private func setFailure(_ message: String) {
+        player?.pause()
+        isPlaying = false
+        loadState = .failed(message)
+    }
+}
+
 private struct AspectFitVideoPlayer: NSViewRepresentable {
     let player: AVPlayer
 
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
-        view.controlsStyle = .floating
+        view.controlsStyle = .inline
         view.videoGravity = .resizeAspect
+        view.showsFullScreenToggleButton = true
+        view.showsSharingServiceButton = false
+        view.updatesNowPlayingInfoCenter = false
         view.player = player
         return view
     }
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
         nsView.player = player
+        nsView.controlsStyle = .inline
         nsView.videoGravity = .resizeAspect
     }
 }
 
 private struct CenteredZoomImageView: NSViewRepresentable {
     let image: NSImage
+    let itemID: MediaItem.ID
     let scale: CGFloat
     let rotation: Angle
     let stageSize: CGSize
@@ -465,9 +682,11 @@ private struct CenteredZoomImageView: NSViewRepresentable {
             width: max(stageSize.width, contentSize.width),
             height: max(stageSize.height, contentSize.height)
         )
+        let itemChanged = context.coordinator.itemID != itemID
         let imageChanged = context.coordinator.image !== image
         let scaleChanged = abs(context.coordinator.scale - scale) > 0.001
         let rotationChanged = abs(context.coordinator.rotationRadians - rotation.radians) > 0.001
+        let viewportChanged = context.coordinator.stageSize != stageSize
 
         documentView.image = image
         documentView.scale = scale
@@ -480,13 +699,19 @@ private struct CenteredZoomImageView: NSViewRepresentable {
         }
         documentView.needsDisplay = true
 
-        if imageChanged || scaleChanged || rotationChanged {
+        if itemChanged || imageChanged || scaleChanged || rotationChanged || viewportChanged {
             centerVisibleContent(in: scrollView)
+            DispatchQueue.main.async { [weak scrollView] in
+                guard let scrollView else { return }
+                centerVisibleContent(in: scrollView)
+            }
         }
 
+        context.coordinator.itemID = itemID
         context.coordinator.image = image
         context.coordinator.scale = scale
         context.coordinator.rotationRadians = rotation.radians
+        context.coordinator.stageSize = stageSize
     }
 
     private func centerVisibleContent(in scrollView: NSScrollView) {
@@ -499,14 +724,16 @@ private struct CenteredZoomImageView: NSViewRepresentable {
             y: max(0, (documentSize.height - visibleSize.height) / 2)
         )
 
-        documentView.scroll(origin)
+        scrollView.contentView.scroll(to: origin)
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     final class Coordinator {
+        var itemID: MediaItem.ID?
         weak var image: NSImage?
         var scale: CGFloat = 1
         var rotationRadians: Double = 0
+        var stageSize: CGSize = .zero
     }
 }
 
@@ -591,18 +818,77 @@ private final class CenteredImageDocumentView: NSView {
     }
 }
 
+private struct ViewerNavigationOverlay: View {
+    let canGoPrevious: Bool
+    let canGoNext: Bool
+    let previous: () -> Void
+    let next: () -> Void
+
+    var body: some View {
+        HStack {
+            navigationButton(
+                title: "Previous File",
+                systemImage: "chevron.left",
+                isEnabled: canGoPrevious,
+                shortcut: .leftArrow,
+                action: previous
+            )
+
+            Spacer(minLength: 80)
+
+            navigationButton(
+                title: "Next File",
+                systemImage: "chevron.right",
+                isEnabled: canGoNext,
+                shortcut: .rightArrow,
+                action: next
+            )
+        }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func navigationButton(
+        title: String,
+        systemImage: String,
+        isEnabled: Bool,
+        shortcut: KeyEquivalent,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .font(.title3.weight(.semibold))
+                .frame(width: 42, height: 54)
+                .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .strokeBorder(.primary.opacity(0.14), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.16), radius: 8, y: 3)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 0.96 : 0.32)
+        .keyboardShortcut(shortcut, modifiers: [.command])
+        .accessibilityLabel(title)
+    }
+}
+
 private struct ViewerToolbar: View {
     let item: MediaItem
     let scale: CGFloat
     let isImage: Bool
+    let isVideoPlaying: Bool
+    let canControlVideo: Bool
     let close: () -> Void
-    let previous: () -> Void
-    let next: () -> Void
     let zoomOut: () -> Void
     let zoomIn: () -> Void
     let fit: () -> Void
     let actualSize: () -> Void
     let rotate: () -> Void
+    let toggleVideoPlayback: () -> Void
     let reveal: () -> Void
     let copy: () -> Void
     let share: () -> Void
@@ -635,20 +921,6 @@ private struct ViewerToolbar: View {
             }
 
             Spacer(minLength: 12)
-
-            ControlGroup {
-                Button(action: previous) {
-                    Label("Previous", systemImage: "chevron.left")
-                }
-                .keyboardShortcut(.leftArrow, modifiers: [.command])
-                .help("Previous Item")
-
-                Button(action: next) {
-                    Label("Next", systemImage: "chevron.right")
-                }
-                .keyboardShortcut(.rightArrow, modifiers: [.command])
-                .help("Next Item")
-            }
 
             ControlGroup {
                 MediaFavoriteButton(items: [item])
@@ -684,6 +956,12 @@ private struct ViewerToolbar: View {
                     }
                     .help("Rotate Preview")
                 }
+            } else {
+                Button(action: toggleVideoPlayback) {
+                    Label(isVideoPlaying ? "Pause Video" : "Play Video", systemImage: isVideoPlaying ? "pause.fill" : "play.fill")
+                }
+                .disabled(!canControlVideo)
+                .accessibilityLabel(isVideoPlaying ? "Pause video" : "Play video")
             }
 
             ControlGroup {
@@ -708,7 +986,7 @@ private struct ViewerToolbar: View {
                 Button("Map", action: showOnMap)
                 Button("Folder", action: showInFolder)
             } label: {
-                Label("Show In", systemImage: "arrowshape.turn.up.right")
+                OptionsMenuLabel(title: "Show in", size: 30)
             }
             .menuStyle(.borderlessButton)
             .help("Show In")

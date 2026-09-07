@@ -10,9 +10,7 @@ struct AsyncThumbnailView: View {
     private let showsSelection: Bool
     private let cornerRadius: CGFloat
     private let fillsAvailableSpace: Bool
-    @State private var image: NSImage?
     @State private var isHovered = false
-    private let cache = ThumbnailMemoryCache.shared
 
     init(
         item: MediaItem,
@@ -88,9 +86,6 @@ struct AsyncThumbnailView: View {
                 }
             }
         }
-        .task(id: item.relativePath) {
-            await loadThumbnail()
-        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityHint("Select the item or use the Open in Viewer action")
@@ -138,38 +133,12 @@ struct AsyncThumbnailView: View {
 
     @ViewBuilder
     private func thumbnailContent(size: CGFloat) -> some View {
-        if let image {
-            if fillsAvailableSpace {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: size, height: size)
-                    .clipped()
-                    .saturation(item.isMissing ? 0.15 : 1)
-                    .opacity(item.isMissing ? 0.45 : 1)
-            } else {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: size, height: size)
-                    .background(Color(nsColor: .underPageBackgroundColor))
-                    .saturation(item.isMissing ? 0.15 : 1)
-                    .opacity(item.isMissing ? 0.45 : 1)
-            }
-        } else {
-            Rectangle()
-                .fill(Color(nsColor: .underPageBackgroundColor))
-                .frame(width: size, height: size)
-                .overlay {
-                    VStack(spacing: 6) {
-                        Image(systemName: item.kind == .video ? "film" : "photo")
-                            .font(.title2)
-                        Text(item.kind.label)
-                            .font(.caption2)
-                    }
-                    .foregroundStyle(.secondary)
-                }
-            }
+        AsyncMediaThumbnailImage(
+            item: item,
+            fillsAvailableSpace: fillsAvailableSpace,
+            cornerRadius: cornerRadius
+        )
+        .frame(width: size, height: size)
     }
 
     @ViewBuilder
@@ -257,8 +226,71 @@ struct AsyncThumbnailView: View {
         if item.isMissing { parts.append("Original file missing") }
         return parts.joined(separator: ", ")
     }
+}
+
+/// Loads one generated catalogue thumbnail into any rectangular surface.
+/// Interactive thumbnail views and album covers share this loader and cache.
+struct AsyncMediaThumbnailImage: View {
+    @EnvironmentObject private var appState: AppState
+    let item: MediaItem
+    var fillsAvailableSpace = true
+    var cornerRadius: CGFloat = 0
+    var showsPlaceholderLabel = true
+    @State private var image: NSImage?
+    private let cache = ThumbnailMemoryCache.shared
+
+    var body: some View {
+        GeometryReader { geometry in
+            thumbnailContent(size: geometry.size)
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        }
+        .task(id: thumbnailIdentity) {
+            await loadThumbnail()
+        }
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func thumbnailContent(size: CGSize) -> some View {
+        if let image {
+            if fillsAvailableSpace {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size.width, height: size.height)
+                    .clipped()
+                    .saturation(item.isMissing ? 0.15 : 1)
+                    .opacity(item.isMissing ? 0.45 : 1)
+            } else {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: size.width, height: size.height)
+                    .background(Color(nsColor: .underPageBackgroundColor))
+                    .saturation(item.isMissing ? 0.15 : 1)
+                    .opacity(item.isMissing ? 0.45 : 1)
+            }
+        } else {
+            Rectangle()
+                .fill(Color(nsColor: .underPageBackgroundColor))
+                .frame(width: size.width, height: size.height)
+                .overlay {
+                    if showsPlaceholderLabel {
+                        VStack(spacing: 6) {
+                            Image(systemName: item.kind == .video ? "film" : "photo")
+                                .font(.title2)
+                            Text(item.kind.label)
+                                .font(.caption2)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                }
+        }
+    }
 
     private func loadThumbnail() async {
+        image = nil
         let path = item.thumbnailPath ?? item.videoThumbnailPath
         guard let path, let url = appState.thumbnailURL(for: path) else { return }
 
@@ -273,6 +305,12 @@ struct AsyncThumbnailView: View {
         guard !Task.isCancelled, let data, let loaded = NSImage(data: data) else { return }
         cache.insert(loaded, for: url)
         image = loaded
+    }
+
+    private var thumbnailIdentity: String {
+        [item.relativePath, item.thumbnailPath, item.videoThumbnailPath]
+            .compactMap { $0 }
+            .joined(separator: "|")
     }
 }
 

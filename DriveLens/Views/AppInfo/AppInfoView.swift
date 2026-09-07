@@ -100,10 +100,10 @@ struct AppInfoView: View {
             "Move catalogue storage?",
             isPresented: $showingMoveCatalogueConfirmation
         ) {
-            Button("Move to Storage Root") {
+            Button("Move to Mapped Storage") {
                 guard let movingCatalogue else { return }
                 Task {
-                    await appState.moveCatalogueToStorageRoot(id: movingCatalogue.catalogueID)
+                    await appState.moveCatalogueToMappedStorage(id: movingCatalogue.catalogueID)
                     self.movingCatalogue = nil
                 }
             }
@@ -195,7 +195,7 @@ struct AppInfoView: View {
     private var overview: some View {
         LazyVGrid(columns: overviewColumns, alignment: .leading, spacing: 12) {
             AppInfoMetricTile(title: "Stored on This Mac", value: bytes(report.macResidentBytes), systemImage: "internaldrive")
-            AppInfoMetricTile(title: "Stored on Storage Roots", value: bytes(report.mediaStoredBytes), systemImage: "externaldrive")
+            AppInfoMetricTile(title: "Stored with Media", value: bytes(report.mediaStoredBytes), systemImage: "externaldrive")
             AppInfoMetricTile(title: "Catalogue Databases", value: bytes(report.totalDatabaseBytes), systemImage: "cylinder.split.1x2")
             AppInfoMetricTile(title: "Generated Thumbnails", value: bytes(report.totalThumbnailBytes), systemImage: "photo.stack")
             AppInfoMetricTile(title: "Catalogues", value: "\(report.mappedCatalogues.count)", systemImage: "rectangle.stack")
@@ -246,7 +246,7 @@ struct AppInfoView: View {
     private func activeCatalogueSubtitle(_ catalogue: CatalogueStorageSnapshot) -> String {
         guard catalogue.isNamedCatalogue else { return catalogue.path }
         let folderText = catalogue.sourceCount == 1 ? "1 imported folder" : "\(catalogue.sourceCount) imported folders"
-        let storageText = catalogue.isStoredOnMac ? "stored on this Mac" : "stored in .drivelens at the storage root"
+        let storageText = catalogue.isStoredOnMac ? "stored on this Mac" : "stored in .drivelens inside a mapped folder"
         return "\(folderText) • \(storageText) • \(catalogue.path)"
     }
 
@@ -289,7 +289,7 @@ struct AppInfoView: View {
                 ContentUnavailableView {
                     Label("No Catalogues", systemImage: "rectangle.stack.badge.questionmark")
                 } description: {
-                    Text("Choose folders to create your first catalogue. DriveLens stores catalogue data in `.drivelens` at the storage root.")
+                    Text("Choose folders to create your first catalogue. DriveLens stores catalogue data in `.drivelens` inside a mapped folder on the same storage device.")
                 }
                 .frame(maxWidth: .infinity, minHeight: 180)
             } else {
@@ -299,7 +299,7 @@ struct AppInfoView: View {
                             catalogue: catalogue,
                             onRename: { beginRenaming(catalogue) },
                             onDelete: { beginDeleting(catalogue) },
-                            onMoveToStorageRoot: { beginMoving(catalogue) }
+                            onMoveToMappedStorage: { beginMoving(catalogue) }
                         )
                     }
                 }
@@ -335,16 +335,16 @@ struct AppInfoView: View {
 
     private var moveCatalogueMessage: String {
         guard let movingCatalogue else {
-            return "DriveLens will move generated catalogue data to .drivelens at the storage root. Original photos and videos are not changed."
+            return "DriveLens will move generated catalogue data to `.drivelens` inside a mapped folder on the same storage device. Original photos and videos are not changed."
         }
 
-        return "DriveLens will copy \(movingCatalogue.name)'s database, thumbnails, hashes, and caches into .drivelens at the storage root, verify the copied catalogue opens, then remove the old Mac-side copy. Original photos and videos are not changed."
+        return "DriveLens will copy \(movingCatalogue.name)'s database, thumbnails, hashes, and caches into `.drivelens` inside a mapped folder, verify the copied catalogue opens, then remove the old Mac-side copy. Original photos and videos are not changed."
     }
 
     private var privacySection: some View {
         AppInfoSection(title: "Privacy", subtitle: "Local by design") {
             VStack(alignment: .leading, spacing: 10) {
-                Label("DriveLens stores catalogue data in `.drivelens` at the storage root.", systemImage: "lock.shield")
+                Label("DriveLens stores catalogue data in `.drivelens` inside a mapped folder on the same storage device.", systemImage: "lock.shield")
                     .font(.callout.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -516,7 +516,7 @@ private struct MappedCatalogueStorageRow: View {
     let catalogue: CatalogueStorageSnapshot
     let onRename: () -> Void
     let onDelete: () -> Void
-    let onMoveToStorageRoot: () -> Void
+    let onMoveToMappedStorage: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -553,9 +553,9 @@ private struct MappedCatalogueStorageRow: View {
 
                     if catalogue.isNamedCatalogue && catalogue.isStoredOnMac {
                         Button {
-                            onMoveToStorageRoot()
+                            onMoveToMappedStorage()
                         } label: {
-                            Label("Move to Storage Root...", systemImage: "externaldrive.badge.plus")
+                            Label("Move to Mapped Storage...", systemImage: "externaldrive.badge.plus")
                         }
                         .disabled(catalogue.sourceCount == 0)
                     }
@@ -566,10 +566,9 @@ private struct MappedCatalogueStorageRow: View {
                         Label("Delete Catalogue Data...", systemImage: "trash")
                     }
                 } label: {
-                    Label("Catalogue Actions", systemImage: "ellipsis.circle")
+                    OptionsMenuLabel(title: "Actions for \(catalogue.name)")
                 }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
+                .menuStyle(.borderlessButton)
                 .controlSize(.small)
                 .help("Catalogue Actions")
                 .accessibilityLabel("Actions for \(catalogue.name)")
@@ -579,7 +578,7 @@ private struct MappedCatalogueStorageRow: View {
                 MiniMetric(title: "Catalogue Data", value: ByteCountFormatter.string(fromByteCount: catalogue.totalBytes, countStyle: .file))
                 MiniMetric(title: "Items", value: catalogue.itemCount?.formatted(.number) ?? "Unknown")
                 MiniMetric(title: "Cache", value: ByteCountFormatter.string(fromByteCount: catalogue.cacheBytes, countStyle: .file))
-                MiniMetric(title: "Location", value: catalogue.isStoredOnMac ? "Mac" : "Root")
+                MiniMetric(title: "Location", value: catalogue.isStoredOnMac ? "Mac" : "Mapped Storage")
                 MiniMetric(title: "Folders", value: catalogue.sourceCount.formatted(.number))
             }
         }
@@ -641,7 +640,7 @@ private struct MappedCatalogueStorageRow: View {
     private var statusText: String {
         if catalogue.isNamedCatalogue {
             if catalogue.sourceCount == 0 { return "Empty" }
-            return catalogue.isStoredOnMac ? "On Mac" : "Storage Root"
+            return catalogue.isStoredOnMac ? "On Mac" : "Mapped Storage"
         }
         if catalogue.isReachable {
             return catalogue.hasSavedPermission ? "Available" : "Detected"
@@ -655,7 +654,7 @@ private struct MappedCatalogueStorageRow: View {
                 return "No folders imported yet"
             }
             let included = "Includes " + catalogue.sourceNames.prefix(3).joined(separator: ", ")
-            let location = catalogue.isStoredOnMac ? "Stored on this Mac" : "Stored at storage root"
+            let location = catalogue.isStoredOnMac ? "Stored on this Mac" : "Stored with mapped media"
             return included + " • " + location + " • " + catalogue.path
         }
         return catalogue.path

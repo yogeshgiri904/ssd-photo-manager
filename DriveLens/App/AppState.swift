@@ -19,6 +19,7 @@ final class AppState: ObservableObject {
     @Published var searchItems: [MediaItem] = []
     @Published var duplicateGroups: [DuplicateGroup] = []
     @Published var smartAlbums: [SmartAlbum] = []
+    @Published private(set) var smartAlbumCoverItems: [SmartAlbum.ID: [MediaItem]] = [:]
     @Published var customAlbums: [CustomAlbum] = []
     @Published var selectedSmartAlbumID: SmartAlbum.ID?
     @Published var smartAlbumItems: [MediaItem] = []
@@ -34,7 +35,7 @@ final class AppState: ObservableObject {
     @Published var selectedMediaItem: MediaItem?
     @Published var showingViewer = false
     @Published var showingInspector = true
-    @Published var gridSize: Double = 132
+    @Published var gridSize: Double = 92
     @Published var timelineQuickFilter: TimelineQuickFilter = .all
     @Published var timelineSort: TimelineSortOption = .captureNewest
     @Published var selectedTimelineYear: Int?
@@ -42,6 +43,13 @@ final class AppState: ObservableObject {
     @Published var timelineCounts: CatalogueCounts = .zero
     @Published var timelineScopeCounts: CatalogueCounts = .zero
     @Published var timelineResultCount = 0
+    @Published var videoQuickFilter: TimelineQuickFilter = .all
+    @Published var videoSort: TimelineSortOption = .captureNewest
+    @Published var selectedVideoYear: Int?
+    @Published var videoYears: [Int] = []
+    @Published var videoCounts: CatalogueCounts = .zero
+    @Published var videoScopeCounts: CatalogueCounts = .zero
+    @Published var videoResultCount = 0
     @Published var recentlyAddedQuickFilter: TimelineQuickFilter = .all
     @Published var recentlyAddedSort: TimelineSortOption = .recentlyAdded
     @Published var selectedRecentlyAddedYear: Int?
@@ -50,7 +58,12 @@ final class AppState: ObservableObject {
     @Published var recentlyAddedScopeCounts: CatalogueCounts = .zero
     @Published var recentlyAddedResultCount = 0
     @Published var searchText = ""
-    @Published var activeFilters = SearchFilters()
+    @Published var searchQuickFilter: TimelineQuickFilter = .all
+    @Published var searchSort: TimelineSortOption = .captureNewest
+    @Published var selectedSearchYear: Int?
+    @Published var searchYears: [Int] = []
+    @Published var searchCounts: CatalogueCounts = .zero
+    @Published var searchScopeCounts: CatalogueCounts = .zero
     @Published var focusedFolderPath: String?
     @Published var scanProgress: ScanProgress?
     @Published var scanSummary: ScanSummary?
@@ -81,6 +94,7 @@ final class AppState: ObservableObject {
     @Published var missingRepairCandidates: [MissingFolderRepairCandidate] = []
     @Published var selectedMissingRepairCandidateID: MissingFolderRepairCandidate.ID?
     @Published var isRepairingMissingFiles = false
+    @Published private(set) var removingCatalogueFolderID: CatalogueSource.ID?
 
     private let bookmarkStore = SecurityScopedBookmarkStore()
     private var database: CatalogueDatabase?
@@ -100,7 +114,7 @@ final class AppState: ObservableObject {
     }
 
     var canScan: Bool {
-        guard scanProgress == nil else { return false }
+        guard scanProgress == nil, !isRemovingCatalogueFolder else { return false }
         if let activeCatalogue {
             return activeCatalogue.sourceList.contains { $0.rootURL.isReachableDirectory }
         }
@@ -126,7 +140,21 @@ final class AppState: ObservableObject {
     }
 
     var canAddFoldersToCatalogue: Bool {
-        scanProgress == nil
+        scanProgress == nil && !isRemovingCatalogueFolder
+    }
+
+    var canRemoveMappedFolders: Bool {
+        database != nil
+            && scanProgress == nil
+            && !isFindingDuplicates
+            && !isRepairingMissingFiles
+            && !isClearingAppCaches
+            && !isCompactingCatalogue
+            && removingCatalogueFolderID == nil
+    }
+
+    var isRemovingCatalogueFolder: Bool {
+        removingCatalogueFolderID != nil
     }
 
     var activeCatalogueName: String {
@@ -259,9 +287,9 @@ final class AppState: ObservableObject {
     }
 
     @discardableResult
-    func createCatalogue(named rawName: String, storageRootURL: URL? = nil, showsCreationMessage: Bool = true) async -> Bool {
+    func createCatalogue(named rawName: String, storageFolderURL: URL? = nil, showsCreationMessage: Bool = true) async -> Bool {
         do {
-            let catalogue = try bookmarkStore.createCatalogue(named: rawName, storageRootURL: storageRootURL)
+            let catalogue = try bookmarkStore.createCatalogue(named: rawName, storageFolderURL: storageFolderURL)
             activeCatalogue = catalogue
             selectedRootURL = nil
             try openCatalogue(catalogue)
@@ -283,7 +311,7 @@ final class AppState: ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.canCreateDirectories = false
-        panel.message = "Choose one or more photo or video folders. DriveLens stores catalogue data in .drivelens at the storage root. Original photos and videos are not changed."
+        panel.message = "Choose one or more photo or video folders on the same storage device. DriveLens stores catalogue data in .drivelens inside a selected folder. Original photos and videos are not changed."
         panel.prompt = "Create Catalogue"
 
         guard panel.runModal() == .OK else { return }
@@ -295,12 +323,9 @@ final class AppState: ObservableObject {
         }
 
         let catalogueName = Self.defaultCatalogueName(for: folderURLs)
-        guard let storageRootURL = await storageRootForCatalogue(for: folderURLs) else {
-            userMessage = "Choose folders on a storage device where DriveLens can create .drivelens at the root."
-            return
-        }
+        guard let storageFolderURL = await catalogueStorageFolder(for: folderURLs) else { return }
 
-        guard await createCatalogue(named: catalogueName, storageRootURL: storageRootURL, showsCreationMessage: false) else { return }
+        guard await createCatalogue(named: catalogueName, storageFolderURL: storageFolderURL, showsCreationMessage: false) else { return }
         await addFolderURLsToCurrentCatalogue(folderURLs)
     }
 
@@ -351,12 +376,9 @@ final class AppState: ObservableObject {
         }
 
         let catalogueName = Self.defaultCatalogueName(for: folderURLs)
-        guard let storageRootURL = await storageRootForCatalogue(for: folderURLs) else {
-            userMessage = "Choose folders on a storage device where DriveLens can create .drivelens at the root."
-            return
-        }
+        guard let storageFolderURL = await catalogueStorageFolder(for: folderURLs) else { return }
 
-        guard await createCatalogue(named: catalogueName, storageRootURL: storageRootURL, showsCreationMessage: false) else { return }
+        guard await createCatalogue(named: catalogueName, storageFolderURL: storageFolderURL, showsCreationMessage: false) else { return }
         await addFolderURLsToCurrentCatalogue(folderURLs)
     }
 
@@ -371,6 +393,15 @@ final class AppState: ObservableObject {
             guard !folderURLs.isEmpty else {
                 userMessage = "Choose at least one reachable folder."
                 return
+            }
+
+            let catalogueURL = URL(fileURLWithPath: catalogue.path, isDirectory: true)
+            if !catalogueURL.isMacApplicationSupportCatalogueStorage {
+                let catalogueDevice = catalogueURL.storageRootURL.standardizedFileURL
+                if folderURLs.contains(where: { !$0.isOnSameStorageDevice(as: catalogueURL) }) {
+                    userMessage = "Choose folders from \(catalogueDevice.lastPathComponent). This catalogue's `.drivelens` folder is stored on that device."
+                    return
+                }
             }
 
             let beforeIDs = Set(catalogue.sourceList.map(\.id))
@@ -388,6 +419,79 @@ final class AppState: ObservableObject {
             await runScan(rebuild: false, sources: newSources)
         } catch {
             userMessage = "Could not add folders: \(error.localizedDescription)"
+        }
+    }
+
+    func removeMappedFolder(_ source: CatalogueSource) async {
+        guard let catalogue = activeCatalogue,
+              catalogue.isNamedCatalogue,
+              catalogue.sourceList.contains(where: { $0.id == source.id }) else {
+            userMessage = "Open the catalogue that contains this folder."
+            return
+        }
+        guard database != nil else {
+            userMessage = "Connect the storage device to continue."
+            return
+        }
+        guard canRemoveMappedFolders else {
+            userMessage = "Wait for the current catalogue task to finish, then remove the folder."
+            return
+        }
+
+        removingCatalogueFolderID = source.id
+        defer { removingCatalogueFolderID = nil }
+
+        let databaseURL = catalogue.databaseURL
+        let catalogueRootURL = URL(fileURLWithPath: catalogue.path, isDirectory: true).standardizedFileURL
+        database = nil
+
+        do {
+            let result = try await Task.detached(priority: .userInitiated) {
+                let removalDatabase = try CatalogueDatabase(databaseURL: databaseURL)
+                let result = try removalDatabase.removeMediaItems(sourcePrefix: source.relativePrefix)
+                let manager = FileManager.default
+
+                for relativePath in result.generatedFilePaths {
+                    let fileURL = catalogueRootURL.appendingPathComponent(relativePath).standardizedFileURL
+                    guard fileURL.isSameOrDescendant(of: catalogueRootURL) else { continue }
+                    try? manager.removeItem(at: fileURL)
+                }
+
+                return result
+            }.value
+
+            database = try CatalogueDatabase(databaseURL: databaseURL)
+            let updatedCatalogue = bookmarkStore.removeSource(id: source.id, from: catalogue)
+            activeCatalogue = updatedCatalogue
+            refreshSavedCatalogues()
+            beginAccessingSources(updatedCatalogue.sourceList)
+
+            if let selectedMediaItem,
+               Self.relativePath(selectedMediaItem.relativePath, isInsideFolder: source.relativePrefix) {
+                self.selectedMediaItem = nil
+                showingViewer = false
+            }
+            if let focusedFolderPath,
+               Self.relativePath(focusedFolderPath, isInsideFolder: source.relativePrefix) {
+                self.focusedFolderPath = nil
+            }
+            pendingDeleteItem = pendingDeleteItem.flatMap {
+                Self.relativePath($0.relativePath, isInsideFolder: source.relativePrefix) ? nil : $0
+            }
+            clearMediaSelection()
+            visibleSelectionScopeItems = []
+            ThumbnailMemoryCache.shared.removeAll()
+            mediaMutationRevision += 1
+
+            await loadTimeline()
+            await refreshMissingRepairCandidates()
+            await refreshAppStorageReport()
+
+            let itemText = result.itemCount == 1 ? "1 indexed item" : "\(result.itemCount) indexed items"
+            userMessage = "Removed “\(source.name)” and \(itemText) from \(updatedCatalogue.name). Original photos and videos are not changed."
+        } catch {
+            try? openCatalogue(catalogue)
+            userMessage = "The folder could not be removed from the catalogue. \(error.localizedDescription) Original photos and videos are not changed."
         }
     }
 
@@ -550,26 +654,36 @@ final class AppState: ObservableObject {
             .standardizedFileURL
     }
 
-    func moveCatalogueToStorageRoot(id: SavedCatalogue.ID) async {
+    func moveCatalogueToMappedStorage(id: SavedCatalogue.ID) async {
         guard var catalogue = bookmarkStore.savedCatalogue(id: id), catalogue.isNamedCatalogue else {
             userMessage = "Choose a named catalogue to move."
             return
         }
 
-        guard let storageRootURL = await storageRootForCatalogue(for: catalogue.sourceList.map(\.rootURL)) else {
-            userMessage = "Connect a writable storage device to continue."
-            return
+        catalogue = resolveSources(for: catalogue)
+        let sourceURLs = resolvedStoragePlacementURLs(for: catalogue.sourceList)
+        let temporarilyAccessedURLs = sourceURLs.filter { $0.startAccessingSecurityScopedResource() }
+        defer {
+            for url in temporarilyAccessedURLs {
+                url.stopAccessingSecurityScopedResource()
+            }
         }
 
-        let destinationRootURL = storageRootURL
+        guard sourceURLs.allSatisfy(\.isReachableDirectory) else {
+            userMessage = "Connect the storage device to continue."
+            return
+        }
+        guard let storageFolderURL = await catalogueStorageFolder(for: sourceURLs) else { return }
+
+        let destinationCatalogueURL = storageFolderURL
             .standardizedFileURL
             .appendingPathComponent(".drivelens", isDirectory: true)
             .appendingPathComponent("catalogues", isDirectory: true)
             .appendingPathComponent(catalogue.id, isDirectory: true)
-        let sourceRootURL = URL(fileURLWithPath: catalogue.path, isDirectory: true).standardizedFileURL
+        let sourceCatalogueURL = URL(fileURLWithPath: catalogue.path, isDirectory: true).standardizedFileURL
 
-        guard sourceRootURL.path != destinationRootURL.path else {
-            userMessage = "\(catalogue.name) is already stored at the media storage root."
+        guard sourceCatalogueURL.path != destinationCatalogueURL.path else {
+            userMessage = "\(catalogue.name) is already stored with its mapped media."
             return
         }
 
@@ -577,12 +691,12 @@ final class AppState: ObservableObject {
         let manager = FileManager.default
 
         do {
-            guard manager.fileExists(atPath: sourceRootURL.path) else {
+            guard manager.fileExists(atPath: sourceCatalogueURL.path) else {
                 userMessage = "Could not find the current catalogue storage folder."
                 return
             }
-            guard !manager.fileExists(atPath: destinationRootURL.path) else {
-                userMessage = "A catalogue storage folder already exists in \(storageRootURL.lastPathComponent)."
+            guard !manager.fileExists(atPath: destinationCatalogueURL.path) else {
+                userMessage = "A catalogue storage folder already exists in \(storageFolderURL.lastPathComponent)."
                 return
             }
 
@@ -590,24 +704,35 @@ final class AppState: ObservableObject {
                 database = nil
             }
 
-            try manager.createDirectory(
-                at: destinationRootURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try manager.copyItem(at: sourceRootURL, to: destinationRootURL)
+            try await Task.detached(priority: .userInitiated) {
+                do {
+                    try FileManager.default.createDirectory(
+                        at: destinationCatalogueURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    try FileManager.default.copyItem(at: sourceCatalogueURL, to: destinationCatalogueURL)
+
+                    let verificationDatabase = try CatalogueDatabase(
+                        databaseURL: CataloguePaths(rootURL: destinationCatalogueURL).databaseURL
+                    )
+                    try verificationDatabase.repairLivePhotoPairs()
+                } catch {
+                    try? FileManager.default.removeItem(at: destinationCatalogueURL)
+                    throw error
+                }
+            }.value
 
             let migratedDatabase = try CatalogueDatabase(
-                databaseURL: CataloguePaths(rootURL: destinationRootURL).databaseURL
+                databaseURL: CataloguePaths(rootURL: destinationCatalogueURL).databaseURL
             )
-            try migratedDatabase.repairLivePhotoPairs()
 
-            catalogue.path = destinationRootURL.path
-            catalogue.bookmarkData = try? destinationRootURL.bookmarkData(
+            catalogue.path = destinationCatalogueURL.path
+            catalogue.bookmarkData = try? destinationCatalogueURL.bookmarkData(
                 options: [.withSecurityScope],
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
-            catalogue.cataloguesDirectoryBookmarkData = try? destinationRootURL.deletingLastPathComponent().bookmarkData(
+            catalogue.cataloguesDirectoryBookmarkData = try? destinationCatalogueURL.deletingLastPathComponent().bookmarkData(
                 options: [.withSecurityScope],
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
@@ -622,12 +747,12 @@ final class AppState: ObservableObject {
                 ssdStatus = catalogue.sourceList.contains { $0.rootURL.isReachableDirectory } ? .connected : .disconnected
             }
 
-            if sourceRootURL.isMacApplicationSupportCatalogueStorage {
-                try? manager.removeItem(at: sourceRootURL)
+            if sourceCatalogueURL.isMacApplicationSupportCatalogueStorage {
+                try? manager.removeItem(at: sourceCatalogueURL)
             }
 
             await refreshAppStorageReport()
-            userMessage = "Moved \(catalogue.name) to \(storageRootURL.lastPathComponent)/.drivelens. This Mac now keeps only the saved pointer. Original photos and videos are not changed."
+            userMessage = "Moved \(catalogue.name) to \(storageFolderURL.lastPathComponent)/.drivelens on \(storageFolderURL.storageRootURL.lastPathComponent). This Mac now keeps only the saved pointer. Original photos and videos are not changed."
         } catch {
             if wasActive {
                 try? openCatalogue(catalogue)
@@ -938,9 +1063,11 @@ final class AppState: ObservableObject {
         scanSummary = nil
         catalogueCounts = .zero
         searchResultCount = 0
+        searchScopeCounts = .zero
         duplicateGroupCount = 0
         selectedDuplicateGroupID = nil
         smartAlbums = []
+        smartAlbumCoverItems = [:]
         customAlbums = []
         selectedSmartAlbumID = nil
         smartAlbumItems = []
@@ -971,6 +1098,7 @@ final class AppState: ObservableObject {
         missingRepairCandidates = []
         selectedMissingRepairCandidateID = nil
         isRepairingMissingFiles = false
+        removingCatalogueFolderID = nil
         isSelectionModeEnabled = false
         visibleSelectionScopeItems = []
         clearMediaSelection()
@@ -982,6 +1110,13 @@ final class AppState: ObservableObject {
         timelineCounts = .zero
         timelineScopeCounts = .zero
         timelineResultCount = 0
+        videoQuickFilter = .all
+        videoSort = .captureNewest
+        selectedVideoYear = nil
+        videoYears = []
+        videoCounts = .zero
+        videoScopeCounts = .zero
+        videoResultCount = 0
         recentlyAddedQuickFilter = .all
         recentlyAddedSort = .recentlyAdded
         selectedRecentlyAddedYear = nil
@@ -990,7 +1125,12 @@ final class AppState: ObservableObject {
         recentlyAddedScopeCounts = .zero
         recentlyAddedResultCount = 0
         searchText = ""
-        activeFilters = SearchFilters()
+        searchQuickFilter = .all
+        searchSort = .captureNewest
+        selectedSearchYear = nil
+        searchYears = []
+        searchCounts = .zero
+        searchScopeCounts = .zero
         focusedFolderPath = nil
         mediaItems = []
         videoItems = []
@@ -1001,6 +1141,7 @@ final class AppState: ObservableObject {
         searchItems = []
         duplicateGroups = []
         smartAlbums = []
+        smartAlbumCoverItems = [:]
         customAlbums = []
         selectedSmartAlbumID = nil
         smartAlbumItems = []
@@ -1138,6 +1279,68 @@ final class AppState: ObservableObject {
         }
     }
 
+    func setVideoQuickFilter(_ filter: TimelineQuickFilter) async {
+        videoQuickFilter = filter
+        guard let database else {
+            clearVideoControlResults()
+            return
+        }
+
+        do {
+            try loadVideoControlResults(in: database, refreshYears: true)
+            selectedMediaItem = videoItems.first
+        } catch {
+            userMessage = "Could not apply the video filter: \(error.localizedDescription)"
+        }
+    }
+
+    func setVideoYear(_ year: Int?) async {
+        selectedVideoYear = year
+        guard let database else {
+            clearVideoControlResults(keepingYears: true)
+            return
+        }
+
+        do {
+            try loadVideoControlResults(in: database, refreshYears: false)
+            selectedMediaItem = videoItems.first
+        } catch {
+            userMessage = "Could not apply the video year filter: \(error.localizedDescription)"
+        }
+    }
+
+    func setVideoSort(_ sort: TimelineSortOption) async {
+        videoSort = sort
+        guard let database else {
+            clearVideoControlResults(keepingYears: true)
+            return
+        }
+
+        do {
+            try loadVideoControlResults(in: database, refreshYears: false)
+            selectedMediaItem = videoItems.first
+        } catch {
+            userMessage = "Could not sort videos: \(error.localizedDescription)"
+        }
+    }
+
+    func resetVideoControls() async {
+        videoQuickFilter = .all
+        videoSort = .captureNewest
+        selectedVideoYear = nil
+        guard let database else {
+            clearVideoControlResults()
+            return
+        }
+
+        do {
+            try loadVideoControlResults(in: database, refreshYears: true)
+            selectedMediaItem = videoItems.first
+        } catch {
+            userMessage = "Could not reset video filters: \(error.localizedDescription)"
+        }
+    }
+
     func setRecentlyAddedQuickFilter(_ filter: TimelineQuickFilter) async {
         recentlyAddedQuickFilter = filter
         guard let database else {
@@ -1237,7 +1440,7 @@ final class AppState: ObservableObject {
                 self.selectedTimelineYear = nil
             }
             mediaItems = try database.fetchTimeline(filter: timelineQuickFilter, year: selectedTimelineYear, sort: timelineSort, limit: pageSize, offset: 0)
-            videoItems = try database.fetchVideos(limit: pageSize, offset: 0)
+            try loadVideoControlResults(in: database, refreshYears: true)
             recentlyAddedYears = try database.fetchRecentlyAddedYears(filter: recentlyAddedQuickFilter)
             if let selectedRecentlyAddedYear, !recentlyAddedYears.contains(selectedRecentlyAddedYear) {
                 self.selectedRecentlyAddedYear = nil
@@ -1251,10 +1454,10 @@ final class AppState: ObservableObject {
                 selectedPlaceClusterID = nil
                 placeItems = try database.fetchLocatedMedia(limit: pageSize, offset: 0)
             }
-            searchItems = try database.fetchMedia(searchText: searchText, filters: activeFilters, limit: pageSize, offset: 0)
+            try loadSearchControlResults(in: database, refreshYears: true)
             duplicateGroups = try database.fetchDuplicateGroups()
             customAlbums = try database.fetchCustomAlbums()
-            smartAlbums = try database.fetchSmartAlbums()
+            try loadSmartAlbumsAndCovers(in: database)
             if let selectedSmartAlbumID,
                let selectedAlbum = smartAlbums.first(where: { $0.id == selectedSmartAlbumID }) {
                 smartAlbumYears = try database.fetchSmartAlbumYears(album: selectedAlbum, filter: smartAlbumQuickFilter)
@@ -1284,7 +1487,6 @@ final class AppState: ObservableObject {
             recentlyAddedCounts = try database.fetchRecentlyAddedCounts(filter: recentlyAddedQuickFilter, year: selectedRecentlyAddedYear)
             recentlyAddedScopeCounts = try recentlyAddedScopeCounts(for: selectedRecentlyAddedYear, in: database)
             recentlyAddedResultCount = recentlyAddedCounts.totalItems
-            searchResultCount = catalogueCounts.totalItems
             folderSummaries = try database.fetchFolderSummaries()
             ssdStatus = activeMediaSources.isEmpty || activeMediaSources.contains { $0.rootURL.isReachableDirectory } ? .connected : .disconnected
         } catch {
@@ -1311,6 +1513,17 @@ final class AppState: ObservableObject {
                 guard recentlyAddedItems.suffix(40).contains(where: { $0.id == item.id }) else { return }
                 let nextPage = try database.fetchRecentlyAdded(filter: recentlyAddedQuickFilter, year: selectedRecentlyAddedYear, sort: recentlyAddedSort, limit: pageSize, offset: recentlyAddedItems.count)
                 recentlyAddedItems.append(contentsOf: nextPage)
+            case .videos:
+                guard videoItems.count < videoResultCount,
+                      videoItems.suffix(40).contains(where: { $0.id == item.id }) else { return }
+                let nextPage = try database.fetchVideos(
+                    filter: videoQuickFilter,
+                    year: selectedVideoYear,
+                    sort: videoSort,
+                    limit: pageSize,
+                    offset: videoItems.count
+                )
+                videoItems.append(contentsOf: nextPage)
             case .smartAlbums:
                 guard smartAlbumItems.suffix(40).contains(where: { $0.id == item.id }),
                       let selectedSmartAlbum else { return }
@@ -1323,6 +1536,18 @@ final class AppState: ObservableObject {
                     offset: smartAlbumItems.count
                 )
                 smartAlbumItems.append(contentsOf: nextPage)
+            case .search:
+                guard searchItems.count < searchResultCount,
+                      searchItems.suffix(40).contains(where: { $0.id == item.id }) else { return }
+                let nextPage = try database.fetchMedia(
+                    searchText: searchText,
+                    filter: searchQuickFilter,
+                    year: selectedSearchYear,
+                    sort: searchSort,
+                    limit: pageSize,
+                    offset: searchItems.count
+                )
+                searchItems.append(contentsOf: nextPage)
             default:
                 return
             }
@@ -1416,59 +1641,34 @@ final class AppState: ObservableObject {
 
     func quickFilterCount(for filter: TimelineQuickFilter) -> Int {
         let counts = selectedTimelineYear == nil ? catalogueCounts : timelineScopeCounts
+        return counts.count(for: filter)
+    }
 
-        switch filter {
-        case .all:
-            return counts.totalItems
-        case .photos:
-            return counts.photoLikeItems
-        case .videos:
-            return counts.videoLikeItems
-        case .withLocation:
-            return counts.locatedItems
-        case .withoutLocation:
-            return counts.missingLocationItems
-        }
+    func videoQuickFilterCount(for filter: TimelineQuickFilter) -> Int {
+        videoScopeCounts.count(for: filter)
     }
 
     func recentlyAddedQuickFilterCount(for filter: TimelineQuickFilter) -> Int {
         let counts = selectedRecentlyAddedYear == nil ? catalogueCounts : recentlyAddedScopeCounts
-
-        switch filter {
-        case .all:
-            return counts.totalItems
-        case .photos:
-            return counts.photoLikeItems
-        case .videos:
-            return counts.videoLikeItems
-        case .withLocation:
-            return counts.locatedItems
-        case .withoutLocation:
-            return counts.missingLocationItems
-        }
+        return counts.count(for: filter)
     }
 
     func smartAlbumQuickFilterCount(for filter: TimelineQuickFilter) -> Int {
-        let counts = smartAlbumScopeCounts
+        smartAlbumScopeCounts.count(for: filter)
+    }
 
-        switch filter {
-        case .all:
-            return counts.totalItems
-        case .photos:
-            return counts.photoLikeItems
-        case .videos:
-            return counts.videoLikeItems
-        case .withLocation:
-            return counts.locatedItems
-        case .withoutLocation:
-            return counts.missingLocationItems
-        }
+    func searchQuickFilterCount(for filter: TimelineQuickFilter) -> Int {
+        searchScopeCounts.count(for: filter)
     }
 
     func countsForCurrentTimelineFilter() -> CatalogueCounts {
         timelineCounts == .zero && selectedTimelineYear == nil && timelineQuickFilter == .all
             ? catalogueCounts
             : timelineCounts
+    }
+
+    func countsForCurrentVideoFilter() -> CatalogueCounts {
+        videoCounts
     }
 
     func countsForCurrentRecentlyAddedFilter() -> CatalogueCounts {
@@ -1479,6 +1679,10 @@ final class AppState: ObservableObject {
 
     func countsForCurrentSmartAlbumFilter() -> CatalogueCounts {
         smartAlbumCounts
+    }
+
+    func countsForCurrentSearchFilter() -> CatalogueCounts {
+        searchCounts
     }
 
     private func timelineScopeCounts(for year: Int?, in database: CatalogueDatabase) throws -> CatalogueCounts {
@@ -1493,6 +1697,36 @@ final class AppState: ObservableObject {
             return catalogueCounts
         }
         return try database.fetchRecentlyAddedCounts(filter: .all, year: year)
+    }
+
+    private func loadVideoControlResults(in database: CatalogueDatabase, refreshYears: Bool) throws {
+        if refreshYears {
+            videoYears = try database.fetchVideoYears(filter: videoQuickFilter)
+            if let selectedVideoYear, !videoYears.contains(selectedVideoYear) {
+                self.selectedVideoYear = nil
+            }
+        }
+
+        videoItems = try database.fetchVideos(
+            filter: videoQuickFilter,
+            year: selectedVideoYear,
+            sort: videoSort,
+            limit: pageSize,
+            offset: 0
+        )
+        videoCounts = try database.fetchVideoCounts(filter: videoQuickFilter, year: selectedVideoYear)
+        videoScopeCounts = try database.fetchVideoCounts(filter: .all, year: selectedVideoYear)
+        videoResultCount = videoCounts.totalItems
+    }
+
+    private func clearVideoControlResults(keepingYears: Bool = false) {
+        videoItems = []
+        videoCounts = .zero
+        videoScopeCounts = .zero
+        videoResultCount = 0
+        if !keepingYears {
+            videoYears = []
+        }
     }
 
     private func smartAlbumScopeCounts(for year: Int?, album: SmartAlbum, in database: CatalogueDatabase) throws -> CatalogueCounts {
@@ -1540,20 +1774,192 @@ final class AppState: ObservableObject {
         }
     }
 
-    func refreshSearchResultCount() {
+    func refreshSearch() {
+        refreshSearch(refreshYears: true)
+    }
+
+    func setSearchQuickFilter(_ filter: TimelineQuickFilter) {
+        searchQuickFilter = filter
+        refreshSearch(refreshYears: true)
+    }
+
+    func setSearchYear(_ year: Int?) {
+        selectedSearchYear = year
+        refreshSearch(refreshYears: false)
+    }
+
+    func setSearchSort(_ sort: TimelineSortOption) {
+        searchSort = sort
+        refreshSearch(refreshYears: false)
+    }
+
+    func resetSearchControls() {
+        searchText = ""
+        searchQuickFilter = .all
+        searchSort = .captureNewest
+        selectedSearchYear = nil
+        refreshSearch(refreshYears: true)
+    }
+
+    func clearSearch() {
+        resetSearchControls()
+    }
+
+    private func refreshSearch(refreshYears: Bool) {
         guard let database else {
-            searchResultCount = filteredItems().count
-            searchItems = filteredItems()
+            loadInMemorySearchControlResults(refreshYears: refreshYears)
+            updateSearchSelection()
             return
         }
 
         do {
-            searchResultCount = try database.countMedia(searchText: searchText, filters: activeFilters)
-            searchItems = try database.fetchMedia(searchText: searchText, filters: activeFilters, limit: pageSize, offset: 0)
+            try loadSearchControlResults(in: database, refreshYears: refreshYears)
+            updateSearchSelection()
         } catch {
-            searchResultCount = filteredItems().count
-            searchItems = filteredItems()
+            searchCounts = .zero
+            searchScopeCounts = .zero
+            searchResultCount = 0
+            searchItems = []
+            if refreshYears {
+                searchYears = []
+            }
+            updateSearchSelection()
+            userMessage = "Search could not be completed. Try again or update the catalogue."
         }
+    }
+
+    private func loadSearchControlResults(in database: CatalogueDatabase, refreshYears: Bool) throws {
+        if refreshYears {
+            searchYears = try database.fetchSearchYears(searchText: searchText, filter: searchQuickFilter)
+            if let selectedSearchYear, !searchYears.contains(selectedSearchYear) {
+                self.selectedSearchYear = nil
+            }
+        }
+
+        searchItems = try database.fetchMedia(
+            searchText: searchText,
+            filter: searchQuickFilter,
+            year: selectedSearchYear,
+            sort: searchSort,
+            limit: pageSize,
+            offset: 0
+        )
+        searchCounts = try database.fetchSearchCounts(
+            searchText: searchText,
+            filter: searchQuickFilter,
+            year: selectedSearchYear
+        )
+        searchScopeCounts = try database.fetchSearchCounts(
+            searchText: searchText,
+            filter: .all,
+            year: selectedSearchYear
+        )
+        searchResultCount = searchCounts.totalItems
+    }
+
+    private func loadInMemorySearchControlResults(refreshYears: Bool) {
+        let matchingItems = inMemorySearchItems()
+
+        if refreshYears {
+            let filterMatchedItems = matchingItems.filter { matchesSearchQuickFilter($0) }
+            searchYears = Array(Set(filterMatchedItems.map { captureYear(for: $0) })).sorted(by: >)
+            if let selectedSearchYear, !searchYears.contains(selectedSearchYear) {
+                self.selectedSearchYear = nil
+            }
+        }
+
+        let yearScopedItems = matchingItems.filter { item in
+            selectedSearchYear == nil || captureYear(for: item) == selectedSearchYear
+        }
+        searchScopeCounts = counts(for: yearScopedItems)
+        let filteredItems = yearScopedItems.filter { matchesSearchQuickFilter($0) }
+        searchCounts = counts(for: filteredItems)
+        searchItems = sortedMediaItems(filteredItems, by: searchSort)
+        searchResultCount = searchItems.count
+    }
+
+    private func sortedMediaItems(_ items: [MediaItem], by sort: TimelineSortOption) -> [MediaItem] {
+        items.sorted { lhs, rhs in
+            switch sort {
+            case .captureNewest:
+                return lhs.captureDate == rhs.captureDate ? lhs.id > rhs.id : lhs.captureDate > rhs.captureDate
+            case .captureOldest:
+                return lhs.captureDate == rhs.captureDate ? lhs.id < rhs.id : lhs.captureDate < rhs.captureDate
+            case .recentlyAdded:
+                return lhs.addedAt == rhs.addedAt ? lhs.id > rhs.id : lhs.addedAt > rhs.addedAt
+            case .fileName:
+                let comparison = lhs.filename.localizedStandardCompare(rhs.filename)
+                return comparison == .orderedSame ? lhs.id > rhs.id : comparison == .orderedAscending
+            case .largestFile:
+                return lhs.fileSize == rhs.fileSize ? lhs.id > rhs.id : lhs.fileSize > rhs.fileSize
+            }
+        }
+    }
+
+    private func captureYear(for item: MediaItem) -> Int {
+        Calendar.current.component(.year, from: item.captureDate)
+    }
+
+    private func matchesSearchQuickFilter(_ item: MediaItem) -> Bool {
+        switch searchQuickFilter {
+        case .all:
+            return true
+        case .photos:
+            return item.kind == .photo || item.kind == .livePhoto
+        case .videos:
+            return item.kind == .video
+        case .withLocation:
+            return item.latitude != nil && item.longitude != nil
+        case .withoutLocation:
+            return item.latitude == nil || item.longitude == nil
+        }
+    }
+
+    private func inMemorySearchItems() -> [MediaItem] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return mediaItems }
+
+        return mediaItems.filter { item in
+            let searchableText = [
+                item.filename,
+                item.folderPath,
+                item.captureDateLocalText,
+                item.caption ?? "",
+                item.keywords.joined(separator: " "),
+                item.placeText,
+                item.cameraText,
+                item.kind.label
+            ].joined(separator: " ")
+            return searchableText.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private func counts(for items: [MediaItem]) -> CatalogueCounts {
+        items.reduce(into: CatalogueCounts.zero) { result, item in
+            result.totalItems += 1
+            if item.kind == .video {
+                result.videos += 1
+            } else {
+                result.photos += 1
+            }
+            if item.latitude != nil && item.longitude != nil {
+                result.locatedItems += 1
+            } else {
+                result.missingLocationItems += 1
+            }
+        }
+    }
+
+    private func updateSearchSelection() {
+        guard selectedSection == .search else { return }
+
+        if let selectedMediaItem,
+           let refreshedItem = searchItems.first(where: { $0.id == selectedMediaItem.id }) {
+            self.selectedMediaItem = refreshedItem
+        } else {
+            selectedMediaItem = searchItems.first
+        }
+        updateVisibleSelectionScope(searchItems)
     }
 
     func counts(for section: SidebarSection) -> CatalogueCounts {
@@ -1563,23 +1969,31 @@ final class AppState: ObservableObject {
         case .recentlyAdded:
             return countsForCurrentRecentlyAddedFilter()
         case .videos:
-            return CatalogueCounts(
-                totalItems: catalogueCounts.videoLikeItems,
-                photos: 0,
-                videos: catalogueCounts.videos,
-                locatedItems: 0,
-                missingLocationItems: 0
-            )
+            return countsForCurrentVideoFilter()
         case .smartAlbums:
             return countsForCurrentSmartAlbumFilter()
-        case .places, .folders, .search, .duplicates, .appInfo:
+        case .search:
+            return countsForCurrentSearchFilter()
+        case .places, .folders, .duplicates, .appInfo:
             return catalogueCounts
         }
+    }
+
+    func coverItems(for album: SmartAlbum) -> [MediaItem] {
+        smartAlbumCoverItems[album.id] ?? []
+    }
+
+    private func loadSmartAlbumsAndCovers(in database: CatalogueDatabase) throws {
+        let albums = try database.fetchSmartAlbums()
+        let covers = (try? database.fetchSmartAlbumCoverItems(albums: albums)) ?? [:]
+        smartAlbums = albums
+        smartAlbumCoverItems = covers
     }
 
     func refreshSmartAlbums() async {
         guard let database else {
             smartAlbums = []
+            smartAlbumCoverItems = [:]
             selectedSmartAlbumID = nil
             smartAlbumItems = []
             customAlbums = []
@@ -1591,7 +2005,7 @@ final class AppState: ObservableObject {
         }
 
         do {
-            smartAlbums = try database.fetchSmartAlbums()
+            try loadSmartAlbumsAndCovers(in: database)
             customAlbums = try database.fetchCustomAlbums()
             guard let selectedSmartAlbumID else { return }
 
@@ -1767,10 +2181,20 @@ final class AppState: ObservableObject {
                 }
             }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let keywordLists = items.map { normalizedKeywords($0.keywords) }
+        let firstKeywordList = keywordLists.first ?? []
+        let hasMixedKeywords = keywordLists.contains { $0 != firstKeywordList }
 
         let captions = items.map { ($0.caption ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
         let firstCaption = captions.first ?? ""
         let hasMixedCaptions = captions.contains { $0 != firstCaption }
+
+        let captureDates = items.map(\.captureDate)
+        let firstCaptureDate = captureDates.first
+        let hasMixedCaptureDates = captureDates.contains { date in
+            guard let firstCaptureDate else { return false }
+            return abs(date.timeIntervalSince(firstCaptureDate)) >= 1
+        }
 
         let locations = items.map { item -> String in
             if !item.placeText.isEmpty { return item.placeText }
@@ -1783,16 +2207,64 @@ final class AppState: ObservableObject {
         let hasMixedLocations = locations.contains { $0 != firstLocation }
 
         let favoriteValues = Set(items.map(\.isFavorite))
+        let cameraMakes = items.map { ($0.cameraMake ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let cameraModels = items.map { ($0.cameraModel ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let lensModels = items.map { ($0.lensModel ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let firstCameraMake = cameraMakes.first ?? ""
+        let firstCameraModel = cameraModels.first ?? ""
+        let firstLensModel = lensModels.first ?? ""
+        let hasMixedCameraDetails = cameraMakes.contains { $0 != firstCameraMake }
+            || cameraModels.contains { $0 != firstCameraModel }
+            || lensModels.contains { $0 != firstLensModel }
 
         return BatchMetadataSummary(
             selectedCount: items.count,
             sharedKeywords: sharedKeywords,
+            commonKeywords: hasMixedKeywords ? nil : firstKeywordList,
+            hasMixedKeywords: hasMixedKeywords,
             commonCaption: hasMixedCaptions || firstCaption.isEmpty ? nil : firstCaption,
             hasMixedCaptions: hasMixedCaptions,
+            commonCaptureDate: hasMixedCaptureDates ? nil : firstCaptureDate,
+            hasMixedCaptureDates: hasMixedCaptureDates,
             commonLocationText: hasMixedLocations || firstLocation.isEmpty ? nil : firstLocation,
             hasMixedLocations: hasMixedLocations,
+            commonCameraMake: hasMixedCameraDetails || firstCameraMake.isEmpty ? nil : firstCameraMake,
+            commonCameraModel: hasMixedCameraDetails || firstCameraModel.isEmpty ? nil : firstCameraModel,
+            commonLensModel: hasMixedCameraDetails || firstLensModel.isEmpty ? nil : firstLensModel,
+            hasMixedCameraDetails: hasMixedCameraDetails,
             commonFavorite: favoriteValues.count == 1 ? favoriteValues.first : nil
         )
+    }
+
+    private func normalizedKeywords(_ keywords: [String]) -> [String] {
+        var seen = Set<String>()
+        return keywords
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0.localizedLowercase).inserted }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    func applyBatchMetadataUpdate(_ update: BatchMetadataUpdate, to items: [MediaItem]) async {
+        var seenIDs = Set<Int64>()
+        let itemIDs = items.map(\.id).filter { seenIDs.insert($0).inserted }
+        guard !itemIDs.isEmpty else { return }
+        guard update.hasChanges else {
+            userMessage = "Choose at least one metadata field to update."
+            return
+        }
+        guard let database else {
+            userMessage = "Connect the storage device to continue."
+            return
+        }
+
+        do {
+            try database.applyBatchMetadataUpdate(update, for: itemIDs)
+            mediaMutationRevision += 1
+            await loadTimeline()
+            showActionNotice("Updated metadata for \(itemIDs.count) item\(itemIDs.count == 1 ? "" : "s").")
+        } catch {
+            userMessage = "Could not update metadata: \(error.localizedDescription)"
+        }
     }
 
     func addKeyword(_ keyword: String, to items: [MediaItem]) async {
@@ -1835,7 +2307,7 @@ final class AppState: ObservableObject {
             try database.setFavorite(isFavorite, for: itemIDs)
             updateFavoriteState(isFavorite, for: Set(itemIDs))
             mediaMutationRevision += 1
-            smartAlbums = try database.fetchSmartAlbums()
+            try loadSmartAlbumsAndCovers(in: database)
             if let selectedSmartAlbumID,
                let selectedAlbum = smartAlbums.first(where: { $0.id == selectedSmartAlbumID }),
                case .favorites = selectedAlbum.kind {
@@ -1910,6 +2382,34 @@ final class AppState: ObservableObject {
         }
     }
 
+    func setCreatedDate(_ date: Date, for items: [MediaItem]) async {
+        let itemIDs = items.map(\.id)
+        guard let database, !itemIDs.isEmpty else { return }
+
+        do {
+            try database.setCaptureDate(date, for: itemIDs)
+            mediaMutationRevision += 1
+            await loadTimeline()
+            userMessage = "Updated created date for \(itemIDs.count) item\(itemIDs.count == 1 ? "" : "s")."
+        } catch {
+            userMessage = "Could not update created date: \(error.localizedDescription)"
+        }
+    }
+
+    func setCameraDetails(make: String, model: String, lens: String, for items: [MediaItem]) async {
+        let itemIDs = items.map(\.id)
+        guard let database, !itemIDs.isEmpty else { return }
+
+        do {
+            try database.setCameraDetails(make: make, model: model, lens: lens, for: itemIDs)
+            mediaMutationRevision += 1
+            await loadTimeline()
+            userMessage = "Updated camera details for \(itemIDs.count) item\(itemIDs.count == 1 ? "" : "s")."
+        } catch {
+            userMessage = "Could not update camera details: \(error.localizedDescription)"
+        }
+    }
+
     @discardableResult
     func addToCustomAlbum(named name: String, items: [MediaItem]) async -> Bool {
         let itemIDs = items.map(\.id)
@@ -1935,7 +2435,7 @@ final class AppState: ObservableObject {
             }
             let album = result.album
             customAlbums = try database.fetchCustomAlbums()
-            smartAlbums = try database.fetchSmartAlbums()
+            try loadSmartAlbumsAndCovers(in: database)
             mediaMutationRevision += 1
             if let selectedSmartAlbumID,
                let selectedAlbum = smartAlbums.first(where: { $0.id == selectedSmartAlbumID }),
@@ -1983,7 +2483,7 @@ final class AppState: ObservableObject {
                 return false
             }
             customAlbums = try database.fetchCustomAlbums()
-            smartAlbums = try database.fetchSmartAlbums()
+            try loadSmartAlbumsAndCovers(in: database)
             userMessage = "Created “\(album.name)”. Add selected photos and videos from the Inspector."
             return true
         } catch {
@@ -2021,7 +2521,7 @@ final class AppState: ObservableObject {
                 return false
             }
             customAlbums = try database.fetchCustomAlbums()
-            smartAlbums = try database.fetchSmartAlbums()
+            try loadSmartAlbumsAndCovers(in: database)
             userMessage = "Renamed the album to “\(renamedAlbum.name)”."
             return true
         } catch {
@@ -2049,7 +2549,7 @@ final class AppState: ObservableObject {
                 closeSmartAlbum()
             }
             customAlbums = try database.fetchCustomAlbums()
-            smartAlbums = try database.fetchSmartAlbums()
+            try loadSmartAlbumsAndCovers(in: database)
             userMessage = "Deleted “\(album.name)” from DriveLens. Original photos and videos are not changed."
         } catch {
             userMessage = "The album could not be deleted. \(error.localizedDescription)"
@@ -2779,6 +3279,15 @@ final class AppState: ObservableObject {
         lastSelectedMediaItemID = visibleItems[newIndex].id
     }
 
+    func canSelectAdjacentItem(offset: Int) -> Bool {
+        let visibleItems = visibleItemsForSelection()
+        guard let selectedMediaItem,
+              let index = visibleItems.firstIndex(where: { $0.id == selectedMediaItem.id }) else {
+            return false
+        }
+        return visibleItems.indices.contains(index + offset)
+    }
+
     func copyOriginal(_ item: MediaItem) {
         copyMediaItems([item])
     }
@@ -2910,49 +3419,68 @@ final class AppState: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func storageRootForCatalogue(for folderURLs: [URL]) async -> URL? {
-        guard let rootURL = preferredCatalogueStorageRoot(for: folderURLs) else {
+    private func catalogueStorageFolder(for folderURLs: [URL]) async -> URL? {
+        let folders = Array(
+            Dictionary(
+                folderURLs
+                    .map(\.standardizedFileURL)
+                    .filter(\.isReachableDirectory)
+                    .map { ($0.path, $0) },
+                uniquingKeysWith: { first, _ in first }
+            ).values
+        )
+
+        guard let firstFolder = folders.first else {
+            userMessage = "Connect the storage device to continue."
             return nil
         }
 
-        if rootURL.canHostDriveLensRootCatalogue {
-            return rootURL
-        }
-
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
-        panel.directoryURL = rootURL
-        panel.prompt = "Allow Storage Root"
-        panel.message = "Select the root of \(rootURL.lastPathComponent) so DriveLens can create .drivelens there."
-
-        guard panel.runModal() == .OK, let selectedURL = panel.url?.standardizedFileURL else {
+        let storageRootURL = firstFolder.storageRootURL.standardizedFileURL
+        guard folders.allSatisfy({ $0.isOnSameStorageDevice(as: firstFolder) }) else {
+            userMessage = "Choose folders from one storage device. DriveLens keeps `.drivelens` on the same device as the mapped folders."
             return nil
         }
 
-        let selectedRootURL = selectedURL.storageRootURL.standardizedFileURL
-        guard selectedURL.path == selectedRootURL.path, selectedRootURL.path == rootURL.path else {
-            userMessage = "Select the storage root itself so DriveLens can keep .drivelens in one easy-to-find place."
+        let storageFolderURL = await Task.detached(priority: .userInitiated) {
+            let orderedFolders = folders.sorted {
+                let leftHasContainer = $0.hasValidDriveLensContainer
+                let rightHasContainer = $1.hasValidDriveLensContainer
+                if leftHasContainer != rightHasContainer {
+                    return leftHasContainer
+                }
+
+                let leftDepth = $0.standardizedFileURL.pathComponents.count
+                let rightDepth = $1.standardizedFileURL.pathComponents.count
+                if leftDepth == rightDepth {
+                    return $0.path.localizedStandardCompare($1.path) == .orderedAscending
+                }
+                return leftDepth < rightDepth
+            }
+            return orderedFolders.first(where: \.canHostDriveLensCatalogue)
+        }.value
+
+        guard let storageFolderURL else {
+            userMessage = "DriveLens could not create a safe, writable `.drivelens` folder in the selected locations. Choose another folder on \(storageRootURL.lastPathComponent)."
             return nil
         }
 
-        guard selectedRootURL.canHostDriveLensRootCatalogue else {
-            userMessage = "DriveLens could not write to \(selectedRootURL.lastPathComponent). Check drive permissions and try again."
-            return nil
-        }
-
-        return selectedRootURL
+        return storageFolderURL
     }
 
-    private func preferredCatalogueStorageRoot(for folderURLs: [URL]) -> URL? {
-        var seen = Set<String>()
-        return folderURLs
-            .map { $0.storageRootURL.standardizedFileURL }
-            .first { rootURL in
-                seen.insert(rootURL.path).inserted && rootURL.isReachableDirectory
+    private func resolvedStoragePlacementURLs(for sources: [CatalogueSource]) -> [URL] {
+        sources.map { source in
+            guard let bookmarkData = source.bookmarkData else {
+                return source.rootURL.standardizedFileURL
             }
+
+            var stale = false
+            return (try? URL(
+                resolvingBookmarkData: bookmarkData,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ))?.standardizedFileURL ?? source.rootURL.standardizedFileURL
+        }
     }
 
     private static func defaultCatalogueName(for folderURLs: [URL]) -> String {
@@ -3454,9 +3982,35 @@ private extension URL {
             .first ?? standardizedFileURL
     }
 
-    var canHostDriveLensRootCatalogue: Bool {
+    func isOnSameStorageDevice(as otherURL: URL) -> Bool {
+        let keys: Set<URLResourceKey> = [.volumeIdentifierKey]
+        let ownIdentifier = try? resourceValues(forKeys: keys).volumeIdentifier
+        let otherIdentifier = try? otherURL.resourceValues(forKeys: keys).volumeIdentifier
+        if let ownIdentifier, let otherIdentifier {
+            return ownIdentifier.isEqual(otherIdentifier)
+        }
+        return storageRootURL.standardizedFileURL.path == otherURL.storageRootURL.standardizedFileURL.path
+    }
+
+    var hasValidDriveLensContainer: Bool {
+        let containerURL = appendingPathComponent(".drivelens", isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: containerURL.path, isDirectory: &isDirectory) else {
+            return false
+        }
+        guard isDirectory.boolValue else { return false }
+        let values = try? containerURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        return values?.isSymbolicLink != true
+    }
+
+    var canHostDriveLensCatalogue: Bool {
         guard isReachableDirectory else { return false }
-        let probeDirectory = appendingPathComponent(".drivelens", isDirectory: true)
+        let containerURL = appendingPathComponent(".drivelens", isDirectory: true)
+        let containerAlreadyExisted = FileManager.default.fileExists(atPath: containerURL.path)
+        if containerAlreadyExisted && !hasValidDriveLensContainer {
+            return false
+        }
+        let probeDirectory = containerURL
             .appendingPathComponent(".write-check-\(UUID().uuidString)", isDirectory: true)
         do {
             try FileManager.default.createDirectory(
@@ -3464,6 +4018,9 @@ private extension URL {
                 withIntermediateDirectories: true
             )
             try? FileManager.default.removeItem(at: probeDirectory)
+            if !containerAlreadyExisted {
+                try? FileManager.default.removeItem(at: containerURL)
+            }
             return true
         } catch {
             return false

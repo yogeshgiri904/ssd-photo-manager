@@ -87,7 +87,7 @@ struct AddToAlbumMenu: View {
     }
 }
 
-private struct NewAlbumForMediaSheet: View {
+struct NewAlbumForMediaSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     let items: [MediaItem]
