@@ -21,71 +21,53 @@ struct OnboardingView: View {
     ]
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .underPageBackgroundColor).opacity(0.72)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
+        GeometryReader { geometry in
             VStack(spacing: 0) {
-                Spacer(minLength: 32)
-
-                VStack(spacing: 24) {
-                    VStack(spacing: 12) {
-                        DriveLensLogoView(size: 96, showsSubtleBackground: true)
-                            .accessibilityLabel("DriveLens app icon")
-
-                        Text("DriveLens")
-                            .font(.title2.weight(.semibold))
-                    }
-
-                    VStack(spacing: 10) {
-                        Text("Step \(step + 1) of \(pages.count)")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
-                            .monospacedDigit()
-
-                        Text(pages[step].title)
-                            .font(.system(size: 34, weight: .semibold))
-                            .multilineTextAlignment(.center)
-
-                        Text(pages[step].message)
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(2)
-                            .frame(maxWidth: 620)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .id(step)
-                    .transition(reduceMotion ? .identity : .opacity)
-
-                    if step == 2 {
-                        folderSelectionPanel
-                            .transition(reduceMotion ? .identity : .opacity.combined(with: .move(edge: .bottom)))
-                    } else {
-                        OnboardingAssuranceStrip()
-                            .transition(reduceMotion ? .identity : .opacity)
-                    }
+                HStack {
+                    DriveLensBrandLockup(logoSize: 30, subtitle: "Your library. Your drive.")
+                    Spacer()
+                    Text("WELCOME / 0\(step + 1)").lensEyebrow()
                 }
-                .frame(maxWidth: 780)
-                .padding(.horizontal, 44)
-
-                Spacer(minLength: 28)
-
-                VStack(spacing: 18) {
+                .padding(.horizontal, 32).padding(.vertical, 22)
+                Divider()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 28) {
+                        if step < 2 {
+                            OnboardingArtwork(step: step)
+                                .frame(height: 154)
+                        }
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(step == 2 ? "YOUR COLLECTION" : "MADE FOR YOUR MAC").lensEyebrow()
+                            Text(pages[step].title)
+                                .font(.system(size: step == 2 ? 30 : 38, weight: .semibold))
+                                .tracking(-0.7)
+                                .accessibilityAddTraits(.isHeader)
+                            Text(pages[step].message)
+                                .font(.system(size: 15)).foregroundStyle(.secondary)
+                                .lineSpacing(4).fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: 590, alignment: .leading)
+                        }
+                        .id(step)
+                        .transition(reduceMotion ? .identity : .opacity)
+                        if step == 2 {
+                            folderSelectionPanel
+                        } else {
+                            OnboardingAssuranceStrip()
+                        }
+                    }
+                    .padding(32)
+                    .frame(maxWidth: 740, minHeight: max(0, geometry.size.height - 180), alignment: .center)
+                    .frame(maxWidth: .infinity)
+                }
+                Divider()
+                HStack(spacing: 24) {
                     StepIndicator(count: pages.count, selectedIndex: step)
                     footer
                 }
-                .padding(.horizontal, 48)
-                .padding(.bottom, 34)
+                .padding(.horizontal, 32).padding(.vertical, 20)
+                .background(LensChrome())
             }
+            .background(LensTheme.canvas)
         }
         .onAppear {
             appState.refreshSavedCatalogues()
@@ -180,18 +162,14 @@ private struct CatalogueChooserPanel: View {
                         }
                         .padding(1)
                     }
-                    .frame(maxHeight: 260)
+                    .frame(height: min(240, CGFloat(catalogues.count) * 110))
                     .scrollIndicators(.visible)
                 }
             }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.09), lineWidth: 1)
-        }
+        .lensSurface(radius: 8)
         .shadow(color: .black.opacity(0.1), radius: 18, y: 8)
     }
 }
@@ -237,7 +215,7 @@ private struct CatalogueSetupBadge: View {
             .padding(.horizontal, 9)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
+            .background(LensTheme.surface, in: RoundedRectangle(cornerRadius: 7))
             .overlay {
                 RoundedRectangle(cornerRadius: 7)
                     .stroke(Color.primary.opacity(0.07), lineWidth: 1)
@@ -278,11 +256,7 @@ private struct EmptyCatalogueChooserState: View {
             Spacer()
         }
         .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        }
+        .lensSurface(radius: 8)
     }
 }
 
@@ -458,7 +432,7 @@ private struct SavedCatalogueRow: View {
         if isHovering {
             return Color(nsColor: .selectedContentBackgroundColor).opacity(0.08)
         }
-        return Color(nsColor: .controlBackgroundColor)
+        return LensTheme.surface
     }
 
     private var borderColor: Color {
@@ -550,4 +524,30 @@ private struct StepIndicator: View {
 private struct OnboardingPage {
     let title: String
     let message: String
+}
+
+
+private struct OnboardingArtwork: View {
+    let step: Int
+    @Environment(\.colorSchemeContrast) private var contrast
+    var body: some View {
+        HStack(spacing: 24) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(LensTheme.gradient)
+                Image(systemName: step == 0 ? "photo.stack" : "map")
+                    .font(.system(size: 52, weight: .light))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 132, height: 132)
+            VStack(alignment: .leading, spacing: 12) {
+                Label(step == 0 ? "Originals stay on your drive" : "Every moment, in context", systemImage: step == 0 ? "externaldrive" : "calendar")
+                Label(step == 0 ? "Private by design" : "Find it in a few keystrokes", systemImage: step == 0 ? "lock.shield" : "command")
+                Label(step == 0 ? "Ready whenever you are" : "Create collections your way", systemImage: step == 0 ? "bolt" : "rectangle.stack")
+            }
+            .font(.callout).foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .accessibilityHidden(true)
+    }
 }

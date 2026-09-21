@@ -36,6 +36,7 @@ struct ScanProgressView: View {
                 .truncationMode(.middle)
                 .foregroundStyle(.secondary)
 
+            DisclosureGroup("Scan details") {
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
                 metric("Checked", "\(progress.filesScanned) / \(progress.totalFilesDiscovered)")
                 metric("New", "\(progress.newFiles)")
@@ -54,14 +55,12 @@ struct ScanProgressView: View {
                 }
             }
             .font(.callout)
+            }.font(.caption)
+
         }
         .padding(16)
-        .frame(width: 380)
-        .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        }
+        .frame(width: 340)
+        .lensSurface(radius: 8)
         .shadow(color: .black.opacity(0.16), radius: 14, y: 6)
         .accessibilityElement(children: .contain)
     }

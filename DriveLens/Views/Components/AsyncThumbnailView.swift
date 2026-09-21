@@ -1,9 +1,12 @@
 import AppKit
+import ImageIO
 import SwiftUI
 
 struct AsyncThumbnailView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     let item: MediaItem
     private let showsBadge: Bool
     private let showsHoverOverlay: Bool
@@ -17,7 +20,7 @@ struct AsyncThumbnailView: View {
         showsBadge: Bool = true,
         showsHoverOverlay: Bool = true,
         showsSelection: Bool = true,
-        cornerRadius: CGFloat = 4,
+        cornerRadius: CGFloat = 9,
         fillsAvailableSpace: Bool = true
     ) {
         self.item = item
@@ -53,7 +56,7 @@ struct AsyncThumbnailView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(6)
-                    .transition(.scale(scale: 0.85).combined(with: .opacity))
+                    .transition(reduceMotion ? .identity : .scale(scale: 0.85).combined(with: .opacity))
                 }
             }
             .frame(width: size, height: size)
@@ -65,7 +68,7 @@ struct AsyncThumbnailView: View {
             }
             .overlay {
                 if showsSelection && isPrimarySelected && !isBatchSelected {
-                    RoundedRectangle(cornerRadius: cornerRadius - 1)
+                    RoundedRectangle(cornerRadius: max(0, cornerRadius - 1))
                         .strokeBorder(Color.accentColor.opacity(0.65), lineWidth: 1)
                         .padding(3)
                 }
@@ -107,7 +110,7 @@ struct AsyncThumbnailView: View {
         if isHovered {
             return Color.primary.opacity(0.22)
         }
-        return Color.primary.opacity(0.06)
+        return Color.primary.opacity(contrast == .increased ? 0.45 : 0.06)
     }
 
     private var borderWidth: CGFloat {
@@ -127,7 +130,7 @@ struct AsyncThumbnailView: View {
             .font(.system(size: 18, weight: .semibold))
             .symbolRenderingMode(.palette)
             .foregroundStyle(.white, Color.accentColor)
-            .background(.regularMaterial, in: Circle())
+            .background(LensTheme.surface, in: Circle())
             .accessibilityLabel("Selected")
     }
 
@@ -152,7 +155,7 @@ struct AsyncThumbnailView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(6)
-                        .background(.black.opacity(0.48), in: Circle())
+                        .background(.black.opacity(reduceTransparency ? 1 : 0.78), in: Circle())
                         .accessibilityLabel("Favorite")
                 }
 
@@ -171,7 +174,7 @@ struct AsyncThumbnailView: View {
                         .lineLimit(1)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
-                        .background(.black.opacity(0.52), in: Capsule())
+                        .background(.black.opacity(reduceTransparency ? 1 : 0.78), in: Capsule())
                         .accessibilityLabel("Video duration \(durationText)")
                 }
             }
@@ -192,8 +195,8 @@ struct AsyncThumbnailView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 5)
-                    .frame(maxWidth: max(44, size - 12), alignment: .leading)
-                    .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 5))
+                    .frame(maxWidth: max(44, size - (showsBadge && item.kind == .video ? 64 : 12)), alignment: .leading)
+                    .background(.black.opacity(reduceTransparency ? 1 : 0.78), in: RoundedRectangle(cornerRadius: 5))
                 Spacer(minLength: 0)
             }
         }
@@ -237,6 +240,7 @@ struct AsyncMediaThumbnailImage: View {
     var cornerRadius: CGFloat = 0
     var showsPlaceholderLabel = true
     @State private var image: NSImage?
+    @State private var loadFailed = false
     private let cache = ThumbnailMemoryCache.shared
 
     var body: some View {
@@ -248,6 +252,7 @@ struct AsyncMediaThumbnailImage: View {
         .task(id: thumbnailIdentity) {
             await loadThumbnail()
         }
+        .onDisappear { image = nil }
         .accessibilityHidden(true)
     }
 
@@ -278,9 +283,9 @@ struct AsyncMediaThumbnailImage: View {
                 .overlay {
                     if showsPlaceholderLabel {
                         VStack(spacing: 6) {
-                            Image(systemName: item.kind == .video ? "film" : "photo")
+                            Image(systemName: loadFailed ? "photo.badge.exclamationmark" : item.kind == .video ? "film" : "photo")
                                 .font(.title2)
-                            Text(item.kind.label)
+                            Text(loadFailed ? "No preview" : item.kind.label)
                                 .font(.caption2)
                         }
                         .foregroundStyle(.secondary)
@@ -291,49 +296,25 @@ struct AsyncMediaThumbnailImage: View {
 
     private func loadThumbnail() async {
         image = nil
+        loadFailed = false
         let path = item.thumbnailPath ?? item.videoThumbnailPath
-        guard let path, let url = appState.thumbnailURL(for: path) else { return }
-
-        if let cached = cache.image(for: url) {
-            image = cached
+        guard let path, let url = appState.thumbnailURL(for: path) else { loadFailed = true; return }
+        if let cached = cache.image(for: url, version: item.updatedAt) {
+            image = NSImage(cgImage: cached, size: NSSize(width: cached.width, height: cached.height))
             return
         }
-
-        let data = await Task.detached(priority: .userInitiated) {
-            try? Data(contentsOf: url, options: [.mappedIfSafe, .uncached])
-        }.value
-        guard !Task.isCancelled, let data, let loaded = NSImage(data: data) else { return }
-        cache.insert(loaded, for: url)
+        // The decoder actor serializes disk reads and forces pixel decoding off the UI actor.
+        let decoded = await ThumbnailDecoder.shared.decode(url, version: item.updatedAt)
+        guard !Task.isCancelled else { return }
+        guard let decoded else { loadFailed = true; return }
+        let loaded = NSImage(cgImage: decoded, size: NSSize(width: decoded.width, height: decoded.height))
         image = loaded
     }
 
     private var thumbnailIdentity: String {
-        [item.relativePath, item.thumbnailPath, item.videoThumbnailPath]
-            .compactMap { $0 }
-            .joined(separator: "|")
-    }
-}
-
-final class ThumbnailMemoryCache {
-    static let shared = ThumbnailMemoryCache()
-
-    private let cache = NSCache<NSURL, NSImage>()
-
-    private init() {
-        cache.countLimit = 600
-        cache.totalCostLimit = 96 * 1024 * 1024
+        [appState.catalogueRootURL?.path, item.relativePath, item.thumbnailPath, item.videoThumbnailPath,
+         String(item.updatedAt.timeIntervalSince1970)]
+            .compactMap { $0 }.joined(separator: "|")
     }
 
-    func image(for url: URL) -> NSImage? {
-        cache.object(forKey: url as NSURL)
-    }
-
-    func insert(_ image: NSImage, for url: URL) {
-        let pixels = max(1, Int(image.size.width * image.size.height))
-        cache.setObject(image, forKey: url as NSURL, cost: pixels * 4)
-    }
-
-    func removeAll() {
-        cache.removeAllObjects()
-    }
 }

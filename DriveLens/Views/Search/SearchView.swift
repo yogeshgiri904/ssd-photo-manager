@@ -79,7 +79,7 @@ private struct SearchHeader: View {
 
         let yearText = appState.selectedSearchYear.map { " from \($0)" } ?? ""
         let filterText = appState.searchQuickFilter == .all ? "" : " · \(appState.searchQuickFilter.title)"
-        return "\(resultCount) result\(resultCount == 1 ? "" : "s")\(yearText)\(filterText) · \(appState.searchSort.title)"
+        return "\(resultCount.formatted()) result\(resultCount == 1 ? "" : "s")\(yearText)\(filterText)"
     }
 
     private var searchField: some View {
@@ -115,11 +115,11 @@ private struct SearchHeader: View {
         }
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
+        .background(LensTheme.canvas, in: RoundedRectangle(cornerRadius: 9))
         .overlay {
             RoundedRectangle(cornerRadius: 9)
                 .stroke(
-                    isSearchFocused ? Color.accentColor.opacity(0.72) : Color.primary.opacity(0.10),
+                    isSearchFocused ? Color.accentColor.opacity(0.72) : LensTheme.line,
                     lineWidth: isSearchFocused ? 2 : 1
                 )
         }

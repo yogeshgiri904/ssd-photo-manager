@@ -9,13 +9,7 @@ struct MediaQuickFilterBar: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .labelStyle(.titleAndIcon)
-                    .padding(.leading, 5)
-
+            HStack(spacing: 4) {
                 ForEach(filters) { filter in
                     MediaQuickFilterPill(
                         filter: filter,
@@ -27,12 +21,8 @@ struct MediaQuickFilterBar: View {
                     .focused($focusedFilter, equals: filter)
                 }
             }
-            .padding(4)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-            }
+            .padding(.vertical, 3)
+
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Media filters")
@@ -40,6 +30,7 @@ struct MediaQuickFilterBar: View {
 }
 
 struct CatalogueControlsHeader<Accessory: View>: View {
+    @EnvironmentObject private var appState: AppState
     let title: String
     let systemImage: String
     let summary: String
@@ -59,197 +50,223 @@ struct CatalogueControlsHeader<Accessory: View>: View {
     let onSelectYear: (Int?) -> Void
     let onReset: () -> Void
     let accessory: Accessory
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: LensHeaderMetrics.sectionGap) {
             ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 16) {
-                    titleBlock
-                    Spacer(minLength: 16)
+                HStack(spacing: 16) {
+                    titleBlock.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 12)
                     metrics
+                    selectionButton
                 }
-
-                VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
                     titleBlock
-                    metrics
+                    Spacer(minLength: 4)
+                    selectionButton
                 }
             }
-
             accessory
             controls
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.horizontal, LensHeaderMetrics.inset)
+        .padding(.vertical, LensHeaderMetrics.verticalInset)
+        .background(LensTheme.canvas)
+        .accessibilityIdentifier("catalogue-browsing-header")
     }
 
     private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                if let backAction {
-                    Button(action: backAction) {
-                        Label("Back", systemImage: "chevron.left")
-                    }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Back")
-                    .accessibilityLabel("Back")
-                }
-
-                Image(systemName: systemImage)
-                    .foregroundStyle(Color.accentColor)
-                    .accessibilityHidden(true)
-
-                Text(title)
-                    .font(.title2.weight(.semibold))
+        HStack(spacing: 10) {
+            if let backAction {
+                Button(action: backAction) { Label("Back", systemImage: "chevron.left") }
+                    .labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small)
+                    .help("Back").accessibilityLabel("Back")
             }
-
-            Text(summary)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(LensHeaderMetrics.title)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1).truncationMode(.middle)
+                    .accessibilityAddTraits(.isHeader)
+                Text(summary)
+                    .font(LensHeaderMetrics.subtitle)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1).help(summary)
+            }
         }
     }
 
-    private var metrics: some View {
-        HStack(spacing: 8) {
-            CatalogueHeaderMetric(systemImage: "photo", value: counts.photos, label: "Photos")
-            CatalogueHeaderMetric(systemImage: "film", value: counts.videos, label: "Videos")
+    private var selectionButton: some View {
+        Button { appState.toggleSelectionMode() } label: {
+            Label(appState.isSelectionModeEnabled ? "Done" : "Select",
+                  systemImage: appState.isSelectionModeEnabled ? "checkmark.circle.fill" : "checkmark.circle")
         }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .fixedSize()
+        .disabled(counts.totalItems == 0 && !appState.isSelectionModeEnabled)
+        .tint(appState.isSelectionModeEnabled ? .accentColor : .primary)
+        .help(appState.isSelectionModeEnabled ? "Finish selecting media" : "Select multiple photos and videos")
+        .accessibilityValue(appState.isSelectionModeEnabled ? "Selection mode on" : "Selection mode off")
+        .accessibilityIdentifier("header-selection-mode")
+    }
+
+    private var metrics: some View {
+        Group {
+            if !appState.selectedMediaItemIDs.isEmpty {
+                Text("\(appState.selectedMediaItemIDs.count.formatted()) selected")
+                    .foregroundStyle(Color.accentColor)
+                    .font(LensHeaderMetrics.subtitle.weight(.medium))
+            } else {
+                HStack(spacing: 12) {
+                    CatalogueHeaderMetric(systemImage: "photo", value: counts.photos, label: "Photos")
+                    CatalogueHeaderMetric(systemImage: "film", value: counts.videos, label: "Videos")
+                }
+            }
+        }
+        .fixedSize()
     }
 
     private var controls: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 8) {
-                quickFilters
-                    .frame(minWidth: 300, maxWidth: .infinity, alignment: .leading)
-
-                Divider()
-                    .frame(height: 24)
-
-                compactControls
+            HStack(spacing: 14) {
+                quickFilters.frame(minWidth: 470, maxWidth: .infinity)
+                Divider().frame(height: 22)
+                optionsRow(compact: false).fixedSize()
             }
-
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 9) {
                 quickFilters
-                compactControls
+                Divider()
+                ViewThatFits(in: .horizontal) {
+                    optionsRow(compact: false)
+                    optionsRow(compact: true)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            sortMenu(compact: true)
+                            yearMenu
+                            Spacer(minLength: 0)
+                            resetButton
+                        }
+                        HStack {
+                            Text("Thumbnail size").font(LensHeaderMetrics.subtitle).foregroundStyle(.secondary)
+                            Spacer(minLength: 4)
+                            gridSizeControl
+                        }
+                    }
+                }
             }
         }
         .controlSize(.small)
-        .padding(5)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
-        }
     }
 
     private var quickFilters: some View {
-        MediaQuickFilterBar(
-            filters: filters,
-            selectedFilter: selectedFilter,
-            count: filterCount,
-            onSelect: onSelectFilter
-        )
+        MediaQuickFilterBar(filters: filters, selectedFilter: selectedFilter,
+                            count: filterCount, onSelect: onSelectFilter)
     }
 
-    private var compactControls: some View {
-        HStack(spacing: 7) {
-            sortMenu
+    private func optionsRow(compact: Bool) -> some View {
+        HStack(spacing: 8) {
+            sortMenu(compact: compact)
             yearMenu
+            resetButton
+            Spacer(minLength: 12)
             gridSizeControl
+        }
+    }
 
-            if hasActiveControls {
-                Button(action: onReset) {
-                    Label(resetLabel, systemImage: "arrow.counterclockwise")
-                }
-                .labelStyle(.iconOnly)
+    @ViewBuilder private var resetButton: some View {
+        if hasActiveControls {
+            Button(action: onReset) { Image(systemName: "arrow.counterclockwise") }
                 .buttonStyle(.bordered)
                 .help(resetLabel)
                 .accessibilityLabel(resetLabel)
+                .accessibilityIdentifier("header-reset-controls")
+        }
+    }
+
+    private var sortOptions: some View {
+        ForEach(TimelineSortOption.allCases) { sort in
+            Button { onSelectSort(sort) } label: {
+                Label(sort.title, systemImage: sort == selectedSort ? "checkmark" : sort.systemImage)
             }
         }
     }
 
-    private var sortMenu: some View {
-        Menu {
-            ForEach(TimelineSortOption.allCases) { sort in
-                Button {
-                    onSelectSort(sort)
-                } label: {
-                    Label(sort.title, systemImage: sort == selectedSort ? "checkmark" : sort.systemImage)
-                }
-            }
-        } label: {
-            CatalogueMenuLabel(
-                title: "Sort",
-                value: selectedSort.title,
-                systemImage: selectedSort.systemImage
-            )
-            .frame(minWidth: 136, alignment: .leading)
-        }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        .help("Sort media")
-    }
-
-    private var yearMenu: some View {
-        Menu {
-            Button {
-                onSelectYear(nil)
-            } label: {
+    private var yearOptions: some View {
+        Group {
+            Button { onSelectYear(nil) } label: {
                 Label("All Years", systemImage: selectedYear == nil ? "checkmark" : "calendar")
             }
-
-            Divider()
-
             ForEach(years, id: \.self) { year in
-                Button {
-                    onSelectYear(year)
-                } label: {
+                Button { onSelectYear(year) } label: {
                     Label(String(year), systemImage: selectedYear == year ? "checkmark" : "calendar")
                 }
             }
-        } label: {
-            CatalogueMenuLabel(
-                title: "Year",
-                value: selectedYear.map(String.init) ?? "All Years",
-                systemImage: "calendar"
-            )
-            .frame(minWidth: 104, alignment: .leading)
+        }
+    }
+
+    private func sortMenu(compact: Bool) -> some View {
+        Menu { sortOptions } label: {
+            Label(compact ? "Sort" : shortSortTitle, systemImage: "arrow.up.arrow.down")
+                .font(LensHeaderMetrics.control)
+                .fixedSize()
         }
         .menuStyle(.button)
-        .menuIndicator(.hidden)
+        .help("Sort: " + selectedSort.title)
+        .accessibilityLabel("Sort media")
+        .accessibilityValue(selectedSort.title)
+        .accessibilityIdentifier("header-sort")
+    }
+
+    private var shortSortTitle: String {
+        switch selectedSort {
+        case .captureNewest: "Newest"
+        case .captureOldest: "Oldest"
+        case .recentlyAdded: "Added"
+        case .fileName: "Name"
+        case .largestFile: "Size"
+        }
+    }
+
+    private var yearMenu: some View {
+        Menu { yearOptions } label: {
+            Label(selectedYear.map(String.init) ?? "All years", systemImage: "calendar")
+                .font(LensHeaderMetrics.control).fixedSize()
+        }
+        .menuStyle(.button)
         .disabled(years.isEmpty)
         .help("Filter by capture year")
+        .accessibilityLabel("Capture year")
+        .accessibilityValue(selectedYear.map(String.init) ?? "All years")
+        .accessibilityIdentifier("header-year")
     }
 
     private var gridSizeControl: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "square.grid.3x3")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-
-            Slider(value: $gridSize, in: 92...220)
-                .frame(width: 78)
+        HStack(spacing: 5) {
+            Button { gridSize = max(92, gridSize - 12) } label: {
+                Image(systemName: "square.grid.3x3").font(.system(size: 11)).frame(width: 18, height: 22)
+            }
+            .disabled(gridSize <= 92)
+            .help("Smaller thumbnails · ⌘−")
+            .accessibilityLabel("Smaller thumbnails")
+            Slider(value: $gridSize, in: 92...220) { Text("Thumbnail size") }
+                .labelsHidden()
+                .frame(width: LensHeaderMetrics.sliderWidth)
                 .accessibilityLabel("Thumbnail size")
                 .accessibilityValue("\(Int(gridSize)) points")
-
-            Image(systemName: "square.grid.2x2")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+                .accessibilityIdentifier("header-thumbnail-size")
+            Button { gridSize = min(220, gridSize + 12) } label: {
+                Image(systemName: "square.grid.2x2").font(.system(size: 13)).frame(width: 18, height: 22)
+            }
+            .disabled(gridSize >= 220)
+            .help("Larger thumbnails · ⌘+")
+            .accessibilityLabel("Larger thumbnails")
         }
-        .font(.caption)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        }
-        .help("Adjust thumbnail size")
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .fixedSize()
+        .help("Thumbnail size · ⌘+ / ⌘−")
     }
+
 }
 
 struct CatalogueMenuLabel: View {
@@ -260,8 +277,6 @@ struct CatalogueMenuLabel: View {
     var body: some View {
         HStack(spacing: 7) {
             Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
-            Text(title)
                 .foregroundStyle(.secondary)
             Text(value)
                 .fontWeight(.medium)
@@ -292,14 +307,7 @@ struct CatalogueHeaderMetric: View {
             Text(label)
                 .foregroundStyle(.secondary)
         }
-        .font(.callout)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        }
+        .font(.caption)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(value) \(label.lowercased())")
     }
@@ -311,6 +319,8 @@ private struct MediaQuickFilterPill: View {
     let isSelected: Bool
     let isFocused: Bool
     let action: () -> Void
+    @Environment(\.colorSchemeContrast) private var contrast
+    @State private var hovered = false
 
     var body: some View {
         Button(action: action) {
@@ -321,23 +331,24 @@ private struct MediaQuickFilterPill: View {
                 Text("\(count)")
                     .font(.caption.weight(.semibold))
                     .monospacedDigit()
-                    .foregroundStyle(isSelected ? .white.opacity(0.88) : .secondary)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
             }
             .font(.caption.weight(isSelected ? .semibold : .regular))
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .foregroundStyle(isSelected ? .white : .primary)
-            .background(isSelected ? Color.accentColor : Color.clear, in: Capsule())
+            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            .background(isSelected ? LensTheme.selectedFill : (hovered ? LensTheme.hoverFill : Color.clear), in: RoundedRectangle(cornerRadius: LensTheme.controlRadius))
             .overlay {
-                Capsule()
+                RoundedRectangle(cornerRadius: LensTheme.controlRadius)
                     .stroke(
-                        isFocused ? (isSelected ? Color.white.opacity(0.92) : Color.accentColor) : (isSelected ? Color.clear : Color.primary.opacity(0.10)),
+                        isFocused ? Color.accentColor : (contrast == .increased ? Color.primary.opacity(0.65) : Color.clear),
                         lineWidth: isFocused ? 2 : 1
                     )
             }
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: LensTheme.controlRadius))
         }
         .buttonStyle(.plain)
+        .onHover { hovered = $0 }
         .help("Show \(filter.title.lowercased()) media")
         .accessibilityLabel("\(filter.title), \(count) item\(count == 1 ? "" : "s")")
         .accessibilityValue(isSelected ? "Selected" : "Not selected")

@@ -1,5 +1,4 @@
 import AppKit
-import CryptoKit
 import Foundation
 import SwiftUI
 
@@ -103,6 +102,8 @@ final class AppState: ObservableObject {
     private var sourceAccessURLs: [URL] = []
     private var catalogueAccessURL: URL?
     private var scanTask: Task<Void, Never>?
+    private var scanGeneration = UUID()
+    private var duplicateGeneration = UUID()
     private var isLoadingPage = false
     private var lastSelectedMediaItemID: Int64?
     private var visibleSelectionScopeItems: [MediaItem] = []
@@ -114,7 +115,7 @@ final class AppState: ObservableObject {
     }
 
     var canScan: Bool {
-        guard scanProgress == nil, !isRemovingCatalogueFolder else { return false }
+        guard scanProgress == nil, !isRemovingCatalogueFolder, !isCompactingCatalogue, !isClearingAppCaches else { return false }
         if let activeCatalogue {
             return activeCatalogue.sourceList.contains { $0.rootURL.isReachableDirectory }
         }
@@ -1051,6 +1052,7 @@ final class AppState: ObservableObject {
 
     func cancelScan() {
         scanTask?.cancel()
+        scanGeneration = UUID()
         scanTask = nil
         scanProgress = nil
         userMessage = "Catalogue update cancelled. Choose Update Catalogue when you are ready to continue."
@@ -1058,6 +1060,7 @@ final class AppState: ObservableObject {
 
     func resetMediaFolderSelection() {
         scanTask?.cancel()
+        scanGeneration = UUID()
         scanTask = nil
         scanProgress = nil
         scanSummary = nil
@@ -1080,6 +1083,7 @@ final class AppState: ObservableObject {
         smartAlbumScopeCounts = .zero
         smartAlbumResultCount = 0
         isFindingDuplicates = false
+        duplicateGeneration = UUID()
         duplicateScanStatus = ""
         appStorageReport = .empty
         isLoadingAppStorageReport = false
@@ -2244,26 +2248,33 @@ final class AppState: ObservableObject {
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
-    func applyBatchMetadataUpdate(_ update: BatchMetadataUpdate, to items: [MediaItem]) async {
+    @discardableResult
+    func applyBatchMetadataUpdate(_ update: BatchMetadataUpdate, to items: [MediaItem]) async -> Bool {
         var seenIDs = Set<Int64>()
         let itemIDs = items.map(\.id).filter { seenIDs.insert($0).inserted }
-        guard !itemIDs.isEmpty else { return }
+        guard !itemIDs.isEmpty else { return false }
         guard update.hasChanges else {
             userMessage = "Choose at least one metadata field to update."
-            return
+            return false
         }
         guard let database else {
             userMessage = "Connect the storage device to continue."
-            return
+            return false
         }
 
         do {
             try database.applyBatchMetadataUpdate(update, for: itemIDs)
+            if let selectedID = selectedMediaItem?.id, itemIDs.contains(selectedID),
+               let refreshedItem = try? database.fetchMedia(id: selectedID) {
+                selectedMediaItem = refreshedItem
+            }
             mediaMutationRevision += 1
             await loadTimeline()
             showActionNotice("Updated metadata for \(itemIDs.count) item\(itemIDs.count == 1 ? "" : "s").")
+            return true
         } catch {
             userMessage = "Could not update metadata: \(error.localizedDescription)"
+            return false
         }
     }
 
@@ -2806,20 +2817,22 @@ final class AppState: ObservableObject {
     }
 
     func deleteMediaItem(_ item: MediaItem) async {
-        guard let fileURL = mediaURL(for: item), let database else {
+        guard let fileURL = mediaURL(for: item), let catalogueSource = source(for: item), let database else {
             userMessage = "Open a catalogue before moving an item to Trash."
             pendingDeleteItem = nil
             return
         }
 
         do {
+            try SafeMediaFileOperations.validate(fileURL, inside: catalogueSource.rootURL, allowMissing: true)
             let originalExists = FileManager.default.fileExists(atPath: fileURL.path)
             if originalExists {
-                var trashedURL: NSURL?
-                try FileManager.default.trashItem(at: fileURL, resultingItemURL: &trashedURL)
+                try SafeMediaFileOperations.trash(fileURL) {
+                    try database.deleteMediaItem(relativePath: item.relativePath)
+                }
+            } else {
+                try database.deleteMediaItem(relativePath: item.relativePath)
             }
-
-            try database.deleteMediaItem(relativePath: item.relativePath)
 
             selectedMediaItemIDs.remove(item.id)
             if selectedMediaItem?.id == item.id {
@@ -2851,34 +2864,54 @@ final class AppState: ObservableObject {
             return
         }
 
+        let isDuplicateCleanup = pendingBatchDeleteContext != .selection
+        let deletionIDs = Set(items.map(\.id))
+        let duplicateSnapshot = duplicateGroups
         var deletedIDs = Set<Int64>()
         var deletedCount = 0
         var missingCount = 0
         var failedCount = 0
+        var firstFailure: String?
 
         for item in items {
-            guard let fileURL = mediaURL(for: item) else {
+            guard self.database === database else { return }
+            if Task.isCancelled { break }
+            guard let fileURL = mediaURL(for: item), let catalogueSource = source(for: item) else {
                 failedCount += 1
                 continue
             }
 
             do {
+                try SafeMediaFileOperations.validate(fileURL, inside: catalogueSource.rootURL, allowMissing: true)
                 let originalExists = FileManager.default.fileExists(atPath: fileURL.path)
                 if originalExists {
-                    var trashedURL: NSURL?
-                    try FileManager.default.trashItem(at: fileURL, resultingItemURL: &trashedURL)
+                    if isDuplicateCleanup {
+                        guard let group = duplicateSnapshot.first(where: { $0.items.contains(where: { $0.id == item.id }) }),
+                              let keeper = group.items.first(where: { !deletionIDs.contains($0.id) }),
+                              let keeperURL = mediaURL(for: keeper), let keeperSource = source(for: keeper) else {
+                            throw CocoaError(.fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: "The duplicate group has changed. Run duplicate detection again."])
+                        }
+                        try SafeMediaFileOperations.validate(keeperURL, inside: keeperSource.rootURL)
+                        try await MediaContentHasher.verifyDuplicate(fileURL, keeping: keeperURL, expectedHash: group.contentHash)
+                        guard !Task.isCancelled, self.database === database else { return }
+                        try SafeMediaFileOperations.validate(fileURL, inside: catalogueSource.rootURL)
+                    }
+                    try SafeMediaFileOperations.trash(fileURL) {
+                        try database.deleteMediaItem(relativePath: item.relativePath)
+                    }
                     deletedCount += 1
                 } else {
+                    try database.deleteMediaItem(relativePath: item.relativePath)
                     missingCount += 1
                 }
-
-                try database.deleteMediaItem(relativePath: item.relativePath)
                 deletedIDs.insert(item.id)
             } catch {
                 failedCount += 1
+                if firstFailure == nil { firstFailure = error.localizedDescription }
             }
         }
 
+        guard self.database === database else { return }
         selectedMediaItemIDs.subtract(deletedIDs)
         if let selectedMediaItem, deletedIDs.contains(selectedMediaItem.id) {
             self.selectedMediaItem = nil
@@ -2895,6 +2928,7 @@ final class AppState: ObservableObject {
         }
 
         userMessage = deletionSummary(deletedCount: deletedCount, missingCount: missingCount, failedCount: failedCount)
+            + (firstFailure.map { " " + $0 } ?? "")
     }
 
     func copySelectedMediaItems() {
@@ -2916,30 +2950,39 @@ final class AppState: ObservableObject {
 
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 
-        var copiedCount = 0
-        var skippedCount = 0
-        var failedCount = 0
-
-        for item in items {
-            guard let source = mediaURL(for: item) else {
-                skippedCount += 1
-                continue
-            }
-            guard FileManager.default.fileExists(atPath: source.path) else {
-                skippedCount += 1
-                continue
-            }
-
-            do {
-                let target = uniqueDestinationURL(for: item.filename, in: destination)
-                try FileManager.default.copyItem(at: source, to: target)
-                copiedCount += 1
-            } catch {
-                failedCount += 1
-            }
+        // Capture URLs while this catalogue's security-scoped access is active.
+        let sources = items.compactMap { item -> (URL, URL)? in
+            guard let url = mediaURL(for: item), let source = source(for: item) else { return nil }
+            return (url, source.rootURL)
         }
-
-        userMessage = copySummary(copiedCount: copiedCount, skippedCount: skippedCount, failedCount: failedCount, destinationName: destination.lastPathComponent)
+        let destinationAccess = destination.startAccessingSecurityScopedResource()
+        let sourceAccess = sources.map { $0.1.startAccessingSecurityScopedResource() }
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                defer {
+                    if destinationAccess { destination.stopAccessingSecurityScopedResource() }
+                    for (index, source) in sources.enumerated() where sourceAccess[index] {
+                        source.1.stopAccessingSecurityScopedResource()
+                    }
+                }
+                var copied = 0
+                var skipped = items.count - sources.count
+                var failed = 0
+                for (source, root) in sources {
+                    guard FileManager.default.fileExists(atPath: source.path) else { skipped += 1; continue }
+                    do {
+                        try SafeMediaFileOperations.validate(source, inside: root)
+                        let target = Self.uniqueDestinationURL(for: source.lastPathComponent, in: destination)
+                        try FileManager.default.copyItem(at: source, to: target)
+                        copied += 1
+                    } catch {
+                        failed += 1
+                    }
+                }
+                return (copied, skipped, failed)
+            }.value
+            userMessage = copySummary(copiedCount: result.0, skippedCount: result.1, failedCount: result.2, destinationName: destination.lastPathComponent)
+        }
     }
 
     func requestRenameSelectedMediaItems() {
@@ -2965,6 +3008,7 @@ final class AppState: ObservableObject {
 
         var plans: [(item: MediaItem, source: URL, target: URL, sourceRoot: URL, sourcePrefix: String)] = []
         var plannedTargets = Set<String>()
+        var renamedIDs = Set<Int64>()
 
         do {
             for (index, item) in items.enumerated() {
@@ -2972,6 +3016,7 @@ final class AppState: ObservableObject {
                       let source = mediaURL(for: item) else {
                     throw BatchMediaOperationError.missingOriginal(item.filename)
                 }
+                try SafeMediaFileOperations.validate(source, inside: catalogueSource.rootURL)
                 guard FileManager.default.fileExists(atPath: source.path) else {
                     throw BatchMediaOperationError.missingOriginal(item.filename)
                 }
@@ -3003,25 +3048,26 @@ final class AppState: ObservableObject {
                 return
             }
 
-            var renamedIDs = Set<Int64>()
             for plan in plans {
-                try FileManager.default.moveItem(at: plan.source, to: plan.target)
-                let attributes = try FileManager.default.attributesOfItem(atPath: plan.target.path)
-                let modifiedAt = attributes[.modificationDate] as? Date ?? Date()
-                let size = (attributes[.size] as? NSNumber)?.int64Value ?? plan.item.fileSize
-                let newRelativePath = catalogueRelativePath(
-                    for: plan.target,
-                    rootURL: plan.sourceRoot,
-                    sourcePrefix: plan.sourcePrefix
-                )
-                try database.updateMediaLocation(
-                    id: plan.item.id,
-                    relativePath: newRelativePath,
-                    folderPath: Self.folderPath(for: newRelativePath),
-                    filename: plan.target.lastPathComponent,
-                    fileSize: size,
-                    modifiedAt: modifiedAt
-                )
+                try SafeMediaFileOperations.validate(plan.source, inside: plan.sourceRoot)
+                try SafeMediaFileOperations.rename(from: plan.source, to: plan.target) {
+                    let attributes = try FileManager.default.attributesOfItem(atPath: plan.target.path)
+                    let modifiedAt = attributes[.modificationDate] as? Date ?? Date()
+                    let size = (attributes[.size] as? NSNumber)?.int64Value ?? plan.item.fileSize
+                    let newRelativePath = catalogueRelativePath(
+                        for: plan.target,
+                        rootURL: plan.sourceRoot,
+                        sourcePrefix: plan.sourcePrefix
+                    )
+                    try database.updateMediaLocation(
+                        id: plan.item.id,
+                        relativePath: newRelativePath,
+                        folderPath: Self.folderPath(for: newRelativePath),
+                        filename: plan.target.lastPathComponent,
+                        fileSize: size,
+                        modifiedAt: modifiedAt
+                    )
+                }
                 renamedIDs.insert(plan.item.id)
             }
 
@@ -3033,21 +3079,33 @@ final class AppState: ObservableObject {
             selectedMediaItem = visibleItemsForSelection().first
             userMessage = "Renamed \(plans.count) original file\(plans.count == 1 ? "" : "s") and updated the catalogue."
         } catch {
-            userMessage = "The original files could not be renamed. \(error.localizedDescription)"
+            if !renamedIDs.isEmpty {
+                selectedMediaItemIDs.subtract(renamedIDs)
+                mediaMutationRevision += 1
+                await loadTimeline()
+                showingRenameSheet = false
+                renameItems = []
+            }
+            userMessage = "Renamed \(renamedIDs.count) file(s). The remaining operation stopped. \(error.localizedDescription)"
         }
     }
 
     func findDuplicates() async {
+        guard !isFindingDuplicates else { return }
         guard let database else {
             userMessage = "Open a catalogue before finding duplicates."
             return
         }
 
+        duplicateGeneration = UUID()
+        let generation = duplicateGeneration
         isFindingDuplicates = true
         duplicateScanStatus = "Preparing duplicate review"
         defer {
-            isFindingDuplicates = false
-            duplicateScanStatus = ""
+            if duplicateGeneration == generation {
+                isFindingDuplicates = false
+                duplicateScanStatus = ""
+            }
         }
 
         do {
@@ -3057,7 +3115,7 @@ final class AppState: ObservableObject {
             var failedCount = 0
 
             for (index, item) in candidates.enumerated() {
-                if Task.isCancelled { break }
+                guard !Task.isCancelled, self.database === database else { return }
 
                 duplicateScanStatus = "Checking \(index + 1) of \(candidates.count): \(item.filename)"
                 guard let fileURL = mediaURL(for: item) else {
@@ -3071,9 +3129,8 @@ final class AppState: ObservableObject {
                 }
 
                 do {
-                    let hash = try await Task.detached(priority: .utility) {
-                        try Self.sha256HexDigest(for: fileURL)
-                    }.value
+                    let hash = try await MediaContentHasher.hashInBackground(fileURL)
+                    guard !Task.isCancelled, self.database === database else { return }
                     try database.updateContentHash(id: item.id, contentHash: hash)
                     hashedCount += 1
                 } catch {
@@ -3081,6 +3138,7 @@ final class AppState: ObservableObject {
                 }
             }
 
+            guard !Task.isCancelled, self.database === database else { return }
             duplicateGroups = try database.fetchDuplicateGroups()
             duplicateGroupCount = duplicateGroups.count
             selectedDuplicateGroupID = duplicateGroups.first?.id
@@ -3185,6 +3243,7 @@ final class AppState: ObservableObject {
     }
 
     func clearActiveThumbnailCaches() async {
+        guard !isClearingAppCaches, !isCompactingCatalogue, scanProgress == nil else { return }
         guard let catalogueRootURL else {
             userMessage = "Open a catalogue before clearing thumbnail caches."
             return
@@ -3215,7 +3274,8 @@ final class AppState: ObservableObject {
     }
 
     func compactActiveCatalogueDatabase() async {
-        guard let database else {
+        guard !isCompactingCatalogue, !isClearingAppCaches, scanProgress == nil else { return }
+        guard database != nil, let catalogueURL else {
             userMessage = "Open a catalogue before compacting the catalogue database."
             return
         }
@@ -3224,7 +3284,9 @@ final class AppState: ObservableObject {
         defer { isCompactingCatalogue = false }
 
         do {
-            try database.compact()
+            try await Task.detached(priority: .utility) {
+                try CatalogueDatabase.compact(databaseURL: catalogueURL)
+            }.value
             await refreshAppStorageReport()
             userMessage = "Compacted the catalogue database."
         } catch {
@@ -3389,7 +3451,7 @@ final class AppState: ObservableObject {
         return parts.isEmpty ? "No items copied." : parts.joined(separator: ", ") + "."
     }
 
-    private func uniqueDestinationURL(for filename: String, in directory: URL) -> URL {
+    nonisolated private static func uniqueDestinationURL(for filename: String, in directory: URL) -> URL {
         let originalURL = directory.appendingPathComponent(filename)
         guard FileManager.default.fileExists(atPath: originalURL.path) else {
             return originalURL
@@ -3499,22 +3561,6 @@ final class AppState: ObservableObject {
         return "Media Catalogue"
     }
 
-    nonisolated private static func sha256HexDigest(for url: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-
-        var hasher = SHA256()
-        while true {
-            let data = handle.readData(ofLength: 1024 * 1024)
-            if data.isEmpty {
-                break
-            }
-            hasher.update(data: data)
-        }
-
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
-    }
-
     @discardableResult
     private func runScan(rebuild: Bool, scopeURLs: [URL]? = nil) async -> Bool {
         if let activeCatalogue, activeCatalogue.isNamedCatalogue {
@@ -3526,6 +3572,8 @@ final class AppState: ObservableObject {
 
         guard let rootURL = selectedRootURL else { return false }
         scanTask?.cancel()
+        scanGeneration = UUID()
+        let generation = scanGeneration
         var completedSuccessfully = false
 
         scanTask = Task { [weak self] in
@@ -3538,6 +3586,7 @@ final class AppState: ObservableObject {
                 let scanner = MediaScanner(rootURL: rootURL, paths: paths, database: db)
 
                 await MainActor.run {
+                    guard self.scanGeneration == generation else { return }
                     self.scanSummary = nil
                     self.scanProgress = ScanProgress()
                     self.userMessage = nil
@@ -3545,12 +3594,16 @@ final class AppState: ObservableObject {
 
                 let summary = try await scanner.scan(rebuild: rebuild, scopeURLs: scopeURLs) { progress in
                     Task { @MainActor in
+                        guard self.scanGeneration == generation, self.scanProgress != nil else { return }
                         self.scanProgress = progress
                     }
                 }
+                try Task.checkCancellation()
+                guard self.scanGeneration == generation else { return }
                 _ = try db.repairLivePhotoPairs()
 
                 await MainActor.run {
+                    guard self.scanGeneration == generation else { return }
                     self.database = db
                     self.scanProgress = nil
                     self.scanSummary = summary
@@ -3560,15 +3613,18 @@ final class AppState: ObservableObject {
                         scopeCount: scopeURLs?.count
                     )
                 }
+                guard self.scanGeneration == generation else { return }
                 await self.loadTimeline()
                 completedSuccessfully = true
             } catch is CancellationError {
                 await MainActor.run {
+                    guard self.scanGeneration == generation else { return }
                     self.scanProgress = nil
                     self.userMessage = "Catalogue update cancelled. Choose Update Catalogue when you are ready to continue."
                 }
             } catch {
                 await MainActor.run {
+                    guard self.scanGeneration == generation else { return }
                     self.scanProgress = nil
                     self.userMessage = "The catalogue update stopped. \(error.localizedDescription) Original photos and videos are not changed."
                     self.ssdStatus = rootURL.isReachableDirectory ? .connected : .disconnected
@@ -3577,7 +3633,7 @@ final class AppState: ObservableObject {
         }
 
         await scanTask?.value
-        scanTask = nil
+        if scanGeneration == generation { scanTask = nil }
         return completedSuccessfully
     }
 
@@ -3597,6 +3653,8 @@ final class AppState: ObservableObject {
         }
 
         scanTask?.cancel()
+        scanGeneration = UUID()
+        let generation = scanGeneration
         var completedSuccessfully = false
         let catalogueRoot = URL(fileURLWithPath: activeCatalogue.path, isDirectory: true)
 
@@ -3609,6 +3667,7 @@ final class AppState: ObservableObject {
                 let db = try CatalogueDatabase(databaseURL: paths.databaseURL)
 
                 await MainActor.run {
+                    guard self.scanGeneration == generation else { return }
                     self.scanSummary = nil
                     self.scanProgress = ScanProgress()
                     self.userMessage = nil
@@ -3637,6 +3696,7 @@ final class AppState: ObservableObject {
                     )
                     let summary = try await scanner.scan(rebuild: false, scopeURLs: sourceScope.urls) { progress in
                         Task { @MainActor in
+                            guard self.scanGeneration == generation, self.scanProgress != nil else { return }
                             var labelledProgress = progress
                             labelledProgress.currentFilename = sourceScope.source.name + (progress.currentFilename.isEmpty ? "" : " / " + progress.currentFilename)
                             labelledProgress.filesScanned += completedFilesScanned
@@ -3658,10 +3718,13 @@ final class AppState: ObservableObject {
                     summaries.append(summary)
                 }
 
+                try Task.checkCancellation()
+                guard self.scanGeneration == generation else { return }
                 _ = try db.repairLivePhotoPairs()
                 let summary = Self.combinedScanSummary(summaries)
 
                 await MainActor.run {
+                    guard self.scanGeneration == generation else { return }
                     self.database = db
                     self.scanProgress = nil
                     self.scanSummary = summary
@@ -3673,15 +3736,18 @@ final class AppState: ObservableObject {
                     )
                     self.ssdStatus = .connected
                 }
+                guard self.scanGeneration == generation else { return }
                 await self.loadTimeline()
                 completedSuccessfully = true
             } catch is CancellationError {
                 await MainActor.run {
+                    guard self.scanGeneration == generation else { return }
                     self.scanProgress = nil
                     self.userMessage = "Catalogue update cancelled. Choose Update Catalogue when you are ready to continue."
                 }
             } catch {
                 await MainActor.run {
+                    guard self.scanGeneration == generation else { return }
                     self.scanProgress = nil
                     self.userMessage = "The catalogue update stopped. \(error.localizedDescription) Original photos and videos are not changed."
                     self.ssdStatus = reachableScopes.contains { $0.source.rootURL.isReachableDirectory } ? .connected : .disconnected
@@ -3690,7 +3756,7 @@ final class AppState: ObservableObject {
         }
 
         await scanTask?.value
-        scanTask = nil
+        if scanGeneration == generation { scanTask = nil }
         return completedSuccessfully
     }
 

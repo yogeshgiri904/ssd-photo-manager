@@ -3,6 +3,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var appState: AppState
+    @AppStorage("appearance") private var appearance = "system"
 
     var body: some View {
         ZStack {
@@ -12,6 +13,17 @@ struct RootView: View {
                 } else {
                     OnboardingView()
                 }
+            }
+            // Keep the library mounted so closing preview restores its scroll and navigation state.
+            .opacity(appState.showingViewer ? 0 : 1)
+            .disabled(appState.showingViewer)
+            .allowsHitTesting(!appState.showingViewer)
+            .accessibilityHidden(appState.showingViewer)
+
+            if appState.showingViewer {
+                MediaViewer(closeAction: { appState.showingViewer = false })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("full-window-media-preview")
             }
 
             if let progress = appState.scanProgress, !appState.hasCompletedOnboarding {
@@ -29,7 +41,9 @@ struct RootView: View {
                     .allowsHitTesting(false)
             }
         }
-        .frame(minWidth: 1060, minHeight: 680)
+        .frame(minWidth: 760, minHeight: 540)
+        .toolbar(appState.showingViewer ? .hidden : .automatic, for: .windowToolbar)
+        .preferredColorScheme(appearance == "system" ? nil : appearance == "dark" ? .dark : .light)
         .alert("DriveLens", isPresented: Binding(
             get: { appState.userMessage != nil },
             set: { if !$0 { appState.userMessage = nil } }
@@ -37,13 +51,6 @@ struct RootView: View {
             Button("OK") { appState.userMessage = nil }
         } message: {
             Text(appState.userMessage ?? "")
-        }
-        .sheet(isPresented: $appState.showingViewer) {
-            if appState.selectedMediaItem != nil {
-                MediaViewer()
-                    .environmentObject(appState)
-                    .frame(width: viewerModalSize.width, height: viewerModalSize.height)
-            }
         }
         .sheet(isPresented: renameSheetBinding) {
             BatchRenameSheet(items: appState.renameItems)
@@ -116,13 +123,22 @@ struct RootView: View {
 
                 Divider()
 
-                List(selection: sidebarSelection) {
-                    SidebarNavigationSection("Library", sections: [.timeline, .places, .folders, .search])
-                    SidebarNavigationSection("Collections", sections: [.videos, .recentlyAdded, .smartAlbums, .duplicates])
-                    SidebarNavigationSection("DriveLens", sections: [.appInfo])
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SidebarNavigationSection("LIBRARY", sections: [.timeline, .places, .folders, .search])
+                        SidebarNavigationSection("COLLECTIONS", sections: [.videos, .recentlyAdded, .smartAlbums, .duplicates])
+                        SidebarNavigationSection("WORKSPACE", sections: [.appInfo])
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 8)
                 }
-                .listStyle(.sidebar)
                 .navigationTitle("DriveLens")
+                .background(LensTheme.sidebar)
+                .onMoveCommand { direction in
+                    let sections = SidebarSection.allCases
+                    guard let index = sections.firstIndex(of: appState.selectedSection) else { return }
+                    if direction == .up { appState.select(sections[max(0, index - 1)]) }
+                    if direction == .down { appState.select(sections[min(sections.count - 1, index + 1)]) }
+                }
 
                 Divider()
 
@@ -130,203 +146,72 @@ struct RootView: View {
                     appState.requestMediaFolderReset()
                 }
             }
-            .navigationSplitViewColumnWidth(min: 210, ideal: 228)
+            .navigationSplitViewColumnWidth(min: 190, ideal: 216, max: 260)
         } detail: {
-            ZStack {
-                switch appState.selectedSection {
-                case .timeline:
-                    TimelineView(
-                        items: appState.filteredItems(),
-                        counts: appState.countsForCurrentTimelineFilter(),
-                        showsQuickFilters: true,
-                        controlScope: .timeline
-                    )
-                case .places:
-                    PlacesView(items: appState.placeItems, clusters: appState.placeClusters, counts: appState.catalogueCounts)
-                case .folders:
-                    FoldersView(items: appState.mediaItems, folders: appState.folderSummaries)
-                case .search:
-                    SearchView()
-                case .videos:
-                    TimelineView(
-                        items: appState.videoItems,
-                        title: "Videos",
-                        counts: appState.countsForCurrentVideoFilter(),
-                        showsQuickFilters: true,
-                        controlScope: .videos
-                    )
-                case .recentlyAdded:
-                    TimelineView(
-                        items: appState.recentlyAddedItems,
-                        title: "Recently Added",
-                        counts: appState.countsForCurrentRecentlyAddedFilter(),
-                        showsQuickFilters: true,
-                        controlScope: .recentlyAdded
-                    )
-                case .smartAlbums:
-                    SmartAlbumsView()
-                case .duplicates:
-                    DuplicatesView()
-                case .appInfo:
-                    AppInfoView()
-                }
-
-                if let progress = appState.scanProgress {
-                    ScanProgressView(progress: progress) {
-                        appState.cancelScan()
-                    }
-                    .padding()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                }
-
-                if appState.ssdStatus.needsAttention {
+            VStack(spacing: 0) {
+                if appState.ssdStatus.needsAttention && appState.selectedSection != .appInfo {
                     StatusBanner(status: appState.ssdStatus) {
                         appState.requestMediaFolderReset()
                     }
-                        .padding(.top, 12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .padding(.horizontal, LensHeaderMetrics.inset)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(LensTheme.canvas)
                 }
-            }
-            .toolbar {
-                let mediaActionItems = appState.selectedOrCurrentVisibleItems()
+                ZStack {
+                    switch appState.selectedSection {
+                    case .timeline:
+                        TimelineView(
+                            items: appState.filteredItems(),
+                            counts: appState.countsForCurrentTimelineFilter(),
+                            showsQuickFilters: true,
+                            controlScope: .timeline
+                        )
+                    case .places:
+                        PlacesView(items: appState.placeItems, clusters: appState.placeClusters, counts: appState.catalogueCounts)
+                    case .folders:
+                        FoldersView(items: appState.mediaItems, folders: appState.folderSummaries)
+                    case .search:
+                        SearchView()
+                    case .videos:
+                        TimelineView(
+                            items: appState.videoItems,
+                            title: "Videos",
+                            counts: appState.countsForCurrentVideoFilter(),
+                            showsQuickFilters: true,
+                            controlScope: .videos
+                        )
+                    case .recentlyAdded:
+                        TimelineView(
+                            items: appState.recentlyAddedItems,
+                            title: "Recently Added",
+                            counts: appState.countsForCurrentRecentlyAddedFilter(),
+                            showsQuickFilters: true,
+                            controlScope: .recentlyAdded
+                        )
+                    case .smartAlbums:
+                        SmartAlbumsView()
+                    case .duplicates:
+                        DuplicatesView()
+                    case .appInfo:
+                        AppInfoView()
+                    }
 
-                ToolbarItem(placement: .principal) {
-                    AppHeaderBar(
-                        section: appState.selectedSection,
-                        catalogueName: appState.activeCatalogueName,
-                        counts: appState.counts(for: appState.selectedSection),
-                        totalCounts: appState.catalogueCounts,
-                        status: appState.ssdStatus,
-                        scanProgress: appState.scanProgress,
-                        searchText: appState.searchText
-                    )
-                }
-
-                ToolbarItemGroup(placement: .primaryAction) {
-                    if appState.scanProgress != nil {
-                        Button {
+                    if let progress = appState.scanProgress {
+                        ScanProgressView(progress: progress) {
                             appState.cancelScan()
-                        } label: {
-                            HeaderCommandLabel(
-                                title: "Cancel Update",
-                                compactTitle: "Cancel",
-                                systemImage: "xmark"
-                            )
                         }
-                        .labelStyle(.titleAndIcon)
-                        .buttonStyle(.bordered)
-                        .controlSize(.regular)
-                        .tint(.orange)
-                        .help("Cancel catalogue update")
-                        .accessibilityHint("Stops the current catalogue update. Original photos and videos are not changed.")
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     }
 
-                    Button {
-                        appState.requestCatalogueUpdate()
-                    } label: {
-                        HeaderCommandLabel(
-                            title: "Update Catalogue",
-                            compactTitle: "Update",
-                            systemImage: "arrow.triangle.2.circlepath"
-                        )
-                    }
-                    .labelStyle(.titleAndIcon)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .keyboardShortcut("r", modifiers: [.command])
-                    .disabled(!appState.canScan)
-                    .help("Update Catalogue")
-                    .accessibilityLabel("Update Catalogue")
-                    .accessibilityHint("Scans mapped folders again. Original photos and videos are not changed.")
-
-                    Button {
-                        Task { await appState.addFoldersToCurrentCatalogue() }
-                    } label: {
-                        HeaderCommandLabel(
-                            title: "Add Folders",
-                            compactTitle: "Add",
-                            systemImage: "folder.badge.plus"
-                        )
-                    }
-                    .labelStyle(.titleAndIcon)
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    .disabled(!appState.canAddFoldersToCatalogue)
-                    .help("Add folders to this catalogue")
-                    .accessibilityLabel("Add Folders to Catalogue")
-                    .accessibilityHint("Choose folders on the same storage device to include in DriveLens.")
-
-                    Menu {
-                        Button {
-                            Task { await appState.chooseFoldersAndUpdateCatalogue() }
-                        } label: {
-                            Label("Update Folders…", systemImage: "folder.badge.gearshape")
-                        }
-                        .disabled(!appState.canScan)
-
-                        Button {
-                            Task { await appState.openMissingFileRepair() }
-                        } label: {
-                            Label("Repair Missing Files…", systemImage: "link.badge.plus")
-                        }
-                        .disabled(!appState.canRepairMissingFiles)
-
-                        Divider()
-
-                        Button {
-                            appState.revealActiveCatalogueFolder()
-                        } label: {
-                            Label("Show Catalogue Storage", systemImage: "externaldrive")
-                        }
-
-                        Button {
-                            appState.select(.appInfo)
-                        } label: {
-                            Label("Storage & Privacy", systemImage: "info.circle")
-                        }
-
-                        Button {
-                            appState.requestMediaFolderReset()
-                        } label: {
-                            Label("Switch Catalogue…", systemImage: "rectangle.stack.badge.person.crop")
-                        }
-                    } label: {
-                        OptionsMenuLabel(title: "More Catalogue Actions", size: 18)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .frame(minWidth: 30, minHeight: 24)
-                    }
-                    .menuStyle(.button)
-                    .menuIndicator(.hidden)
-                    .controlSize(.regular)
-                    .help("More Catalogue Actions")
-                    .accessibilityLabel("More Catalogue Actions")
-
-                    if appState.selectedSection != .appInfo {
-                        if !mediaActionItems.isEmpty {
-                            Divider()
-
-                            HeaderMediaActionsMenu(items: mediaActionItems)
-                        } else {
-                            Button {
-                                appState.showingInspector.toggle()
-                            } label: {
-                                Label(appState.showingInspector ? "Hide Inspector" : "Show Inspector", systemImage: appState.showingInspector ? "sidebar.trailing" : "sidebar.right")
-                            }
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.borderless)
-                            .controlSize(.regular)
-                            .foregroundStyle(appState.showingInspector ? Color.accentColor : Color.primary)
-                            .frame(width: 30, height: 30)
-                            .help(appState.showingInspector ? "Hide Inspector" : "Show Inspector")
-                            .accessibilityLabel(appState.showingInspector ? "Hide Inspector" : "Show Inspector")
-                        }
-                    }
                 }
-
             }
+            .toolbar { LibraryWindowToolbar() }
+
         }
         .navigationSplitViewStyle(.balanced)
+        .lensScrollEdges()
         .searchable(text: $appState.searchText, placement: .toolbar, prompt: "Search Catalogue")
         .onSubmit(of: .search) {
             appState.select(.search)
@@ -397,201 +282,111 @@ struct RootView: View {
         appState.pendingBatchDeleteContext.message(count: appState.pendingBatchDeleteItems.count)
     }
 
-    private var viewerModalSize: CGSize {
-        let frame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 820)
-        return CGSize(
-            width: max(980, frame.width * 0.94),
-            height: max(640, frame.height * 0.90)
-        )
-    }
 
 }
 
-private struct AppHeaderBar: View {
-    let section: SidebarSection
-    let catalogueName: String
-    let counts: CatalogueCounts
-    let totalCounts: CatalogueCounts
-    let status: SSDStatus
-    let scanProgress: ScanProgress?
-    let searchText: String
+/// Keep global catalogue commands in native window chrome; browsing controls live with their grid.
+private struct LibraryWindowToolbar: ToolbarContent {
+    @EnvironmentObject private var appState: AppState
 
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            expandedHeader
-            compactHeader
+    var body: some ToolbarContent {
+        ToolbarItem(id: "catalogue", placement: .principal) {
+            CatalogueToolbarMenu()
         }
-        .frame(minWidth: 280, idealWidth: 470, maxWidth: 560, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilitySummary)
-    }
-
-    private var expandedHeader: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Image(systemName: section.systemImage)
-                .font(.system(size: 15, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary)
-                .frame(width: 18)
-                .accessibilityHidden(true)
-
-            titleBlock
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var compactHeader: some View {
-        titleBlock
-    }
-
-    private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 8) {
-                Text(headerTitle)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                HeaderStatusIndicator(status: status)
+        ToolbarItem(id: "update-catalogue", placement: .primaryAction) {
+            Button {
+                if appState.scanProgress != nil { appState.cancelScan() }
+                else { appState.requestCatalogueUpdate() }
+            } label: {
+                Label(appState.scanProgress == nil ? "Update Catalogue" : "Cancel Update",
+                      systemImage: appState.scanProgress == nil ? "arrow.triangle.2.circlepath" : "stop.circle")
             }
-
-            subtitleRow
+            .disabled(appState.scanProgress == nil && !appState.canScan)
+            .help(appState.scanProgress == nil ? "Update Catalogue · ⇧⌘R" : "Cancel catalogue update")
+            .accessibilityIdentifier("header-update")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private var subtitleRow: some View {
-        if let scanProgress {
-            HeaderScanProgress(progress: scanProgress)
-        } else {
-            Text(headerSubtitle)
-                .font(.caption)
-                .foregroundStyle(status.needsAttention ? .orange : .secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+        ToolbarItem(id: "add-folders", placement: .primaryAction) {
+            Button {
+                Task { await appState.addFoldersToCurrentCatalogue() }
+            } label: {
+                Label("Add Folders", systemImage: "folder.badge.plus")
+            }
+            .disabled(!appState.canAddFoldersToCatalogue)
+            .help("Add folders to this catalogue")
+            .accessibilityIdentifier("header-add-folders")
         }
-    }
-
-    private var headerTitle: String {
-        if section == .search, !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Search"
-        }
-        return section.title
-    }
-
-    private var headerSubtitle: String {
-        if status.needsAttention {
-            return attentionMessage
-        }
-
-        if section == .search, !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Results for “\(searchText)” in \(catalogueName)"
-        }
-
-        if counts.totalItems == totalCounts.totalItems || section == .appInfo {
-            return "\(catalogueName) • \(metricsText)"
-        }
-
-        return "\(formattedCount(counts.totalItems)) shown • \(catalogueName) • \(formattedCount(totalCounts.totalItems)) total"
-    }
-
-    private var metricsText: String {
-        "\(formattedCount(counts.totalItems)) items, \(formattedCount(counts.photoLikeItems)) photos, \(formattedCount(counts.videoLikeItems)) videos"
-    }
-
-    private var accessibilitySummary: String {
-        "\(headerTitle), \(headerSubtitle), \(status.title)"
-    }
-
-    private var attentionMessage: String {
-        switch status {
-        case .disconnected:
-            return "Connect the storage device to continue."
-        case .permissionLost:
-            return "DriveLens needs folder permission again."
-        case .catalogueCorrupted:
-            return "The catalogue could not be read. Original photos and videos are not changed."
-        case .notSelected, .connected:
-            return catalogueName
+        if appState.selectedSection != .appInfo {
+            ToolbarItem(id: "organize-media", placement: .primaryAction) {
+                HeaderMediaActionsMenu(items: appState.selectedOrCurrentVisibleItems())
+            }
+            ToolbarItem(id: "toggle-inspector", placement: .primaryAction) {
+                Button {
+                    appState.showingInspector.toggle()
+                } label: {
+                    Label(appState.showingInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.trailing")
+                }
+                .tint(appState.showingInspector ? .accentColor : .primary)
+                .help(appState.showingInspector ? "Hide Inspector · ⌥⌘I" : "Show Inspector · ⌥⌘I")
+                .accessibilityValue(appState.showingInspector ? "Visible" : "Hidden")
+                .accessibilityIdentifier("header-inspector")
+            }
         }
     }
 }
 
-private struct HeaderStatusIndicator: View {
-    let status: SSDStatus
+private struct CatalogueToolbarMenu: View {
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(indicatorColor)
-                .frame(width: 6, height: 6)
-
-            Text(status.title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(status.needsAttention ? .orange : .secondary)
-                .lineLimit(1)
+        Menu {
+            Section(appState.activeCatalogueName) {
+                Text("\(appState.catalogueCounts.totalItems.formatted()) items · \(appState.ssdStatus.title)")
+                Button("Update Catalogue", systemImage: "arrow.triangle.2.circlepath") { appState.requestCatalogueUpdate() }
+                    .disabled(!appState.canScan)
+                Button("Add Folders…", systemImage: "folder.badge.plus") {
+                    Task { await appState.addFoldersToCurrentCatalogue() }
+                }
+                .disabled(!appState.canAddFoldersToCatalogue)
+                Button("Update Folders…", systemImage: "folder.badge.gearshape") {
+                    Task { await appState.chooseFoldersAndUpdateCatalogue() }
+                }
+                .disabled(!appState.canScan)
+                Button("Repair Missing Files…", systemImage: "link.badge.plus") {
+                    Task { await appState.openMissingFileRepair() }
+                }
+                .disabled(!appState.canRepairMissingFiles)
+            }
+            Divider()
+            Button("Show Catalogue Storage", systemImage: "externaldrive") { appState.revealActiveCatalogueFolder() }
+            Button("Storage & Privacy", systemImage: "info.circle") { appState.select(.appInfo) }
+            SettingsLink { Label("Settings…", systemImage: "gearshape") }
+            Divider()
+            Button("Switch Catalogue…", systemImage: "rectangle.stack") { appState.requestMediaFolderReset() }
+        } label: {
+            Label(toolbarTitle, systemImage: appState.ssdStatus.needsAttention
+                  ? "externaldrive.badge.exclamationmark" : "externaldrive")
+                .labelStyle(.titleAndIcon)
         }
-        .accessibilityLabel(status.title)
+        .menuStyle(.borderlessButton)
+        .help(appState.activeCatalogueName + " · " + (appState.scanProgress.map(scanSummary) ?? appState.ssdStatus.title)
+              + "\nCatalogue actions, storage, and settings")
+        .accessibilityLabel("Catalogue: " + appState.activeCatalogueName)
+        .accessibilityValue(appState.scanProgress.map(scanSummary) ?? appState.ssdStatus.title)
+        .accessibilityIdentifier("header-catalogue")
     }
 
-    private var indicatorColor: Color {
-        switch status {
-        case .connected:
-            return .green
-        case .notSelected:
-            return .secondary.opacity(0.45)
-        case .disconnected, .permissionLost, .catalogueCorrupted:
-            return .orange
-        }
-    }
-}
-
-private struct HeaderScanProgress: View {
-    let progress: ScanProgress
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ProgressView()
-                .controlSize(.mini)
-                .scaleEffect(0.72)
-
-            Text(statusText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-
-            Text(progressText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .lineLimit(1)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Catalogue update progress")
-        .accessibilityValue(progressAccessibilityValue)
+    private var toolbarTitle: String {
+        if let progress = appState.scanProgress { return scanSummary(progress) }
+        // AppKit extracts a Menu's label for the native toolbar, bypassing SwiftUI frame limits.
+        // Bound only the chrome title; the menu, tooltip, and accessibility retain the full name.
+        let name = appState.activeCatalogueName
+        return name.count > 24 ? String(name.prefix(17)) + "…" + String(name.suffix(6)) : name
     }
 
-    private var statusText: String {
-        if progress.status == .discovering {
-            return "Discovering files"
-        }
-        if progress.currentFilename.isEmpty {
-            return "Updating catalogue"
-        }
-        return progress.currentFilename
-    }
-
-    private var progressText: String {
-        guard progress.totalFilesDiscovered > 0 else { return "Preparing" }
-        let percent = Int((Double(progress.filesScanned) / Double(max(progress.totalFilesDiscovered, 1))) * 100)
-        return "\(percent)%"
-    }
-
-    private var progressAccessibilityValue: String {
-        guard progress.totalFilesDiscovered > 0 else { return "Preparing" }
-        return "\(progress.filesScanned) of \(progress.totalFilesDiscovered) files checked, \(progressText)"
+    private func scanSummary(_ progress: ScanProgress) -> String {
+        guard progress.totalFilesDiscovered > 0 else { return "Discovering files…" }
+        let fraction = min(1, max(0, Double(progress.filesScanned) / Double(progress.totalFilesDiscovered)))
+        return "Updating · \(Int(fraction * 100))%"
     }
 }
 
@@ -635,14 +430,21 @@ private struct HeaderMediaActionsMenu: View {
                 Label("Add to Album", systemImage: "rectangle.stack.badge.plus")
             }
         } label: {
-            HeaderOrganizeLabel()
+            HStack(spacing: 4) {
+                Image(systemName: "rectangle.stack.badge.plus")
+                if items.count > 1 {
+                    Text(items.count.formatted()).font(.system(size: 11, weight: .medium)).monospacedDigit()
+                }
+            }
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
         .controlSize(.regular)
         .disabled(items.isEmpty)
         .help("Organize selected media")
-        .accessibilityLabel("Organize")
+        .accessibilityLabel("Organize selected media")
+        .accessibilityValue("\(items.count) selected")
+        .accessibilityIdentifier("header-organize")
         .accessibilityHint("Mark as favorite or add selected media to an album.")
         .sheet(isPresented: $showingNewAlbumSheet) {
             NewAlbumForMediaSheet(items: items)
@@ -664,46 +466,6 @@ private struct HeaderMediaActionsMenu: View {
     }
 }
 
-private struct HeaderOrganizeLabel: View {
-    var body: some View {
-        Label("Organize", systemImage: "rectangle.stack.badge.plus")
-            .font(.callout.weight(.medium))
-            .labelStyle(.titleAndIcon)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 2)
-            .frame(minWidth: 92, minHeight: 24)
-            .contentShape(Capsule())
-    }
-}
-
-private struct HeaderCommandLabel: View {
-    let title: String
-    let compactTitle: String
-    let systemImage: String
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            Label(title, systemImage: systemImage)
-            Label(compactTitle, systemImage: systemImage)
-            Image(systemName: systemImage)
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 1)
-        .frame(minHeight: 22)
-    }
-}
-
-private func formattedCount(_ value: Int) -> String {
-    if value >= 1_000_000 {
-        let compact = Double(value) / 1_000_000
-        return compact >= 10 ? "\(Int(compact))M" : String(format: "%.1fM", compact)
-    }
-    if value >= 10_000 {
-        return "\(value / 1_000)K"
-    }
-    return "\(value)"
-}
-
 private struct ActionNotice: View {
     let message: String
 
@@ -713,11 +475,7 @@ private struct ActionNotice: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 9))
-            .overlay {
-                RoundedRectangle(cornerRadius: 9)
-                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
-            }
+            .lensSurface(radius: 9)
             .shadow(color: .black.opacity(0.16), radius: 14, y: 6)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(message)
@@ -787,7 +545,7 @@ private struct BatchRenameSheet: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                .background(LensTheme.surface, in: RoundedRectangle(cornerRadius: 8))
             }
 
             HStack {
@@ -880,7 +638,7 @@ private struct MissingFileRepairSheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
-        .background(.bar)
+        .background(LensChrome())
     }
 
     @ViewBuilder
@@ -915,7 +673,7 @@ private struct MissingFileRepairSheet: View {
 
                 repairDetail
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(Color(nsColor: .textBackgroundColor))
+                    .background(LensTheme.canvas)
             }
         }
     }
@@ -945,7 +703,7 @@ private struct MissingFileRepairSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(12)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                .background(LensTheme.surface, in: RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Sample Files")
@@ -998,7 +756,7 @@ private struct MissingFileRepairSheet: View {
         .controlSize(.regular)
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
-        .background(.bar)
+        .background(LensChrome())
     }
 }
 
@@ -1039,10 +797,10 @@ private struct SidebarBrandHeader: View {
         DriveLensBrandLockup(
             logoSize: 32,
             titleFont: .title3.weight(.semibold),
-            subtitle: "Local media catalogue"
+            subtitle: "Your private photo library"
         )
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -1053,46 +811,59 @@ private struct SidebarFooter: View {
     let status: SSDStatus
     let counts: CatalogueCounts
     let chooseDifferentFolder: () -> Void
+    @State private var showsDetails = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Label(title, systemImage: status.systemImage)
-                .font(.callout.weight(.medium))
-                .lineLimit(1)
-                .truncationMode(.middle)
+        VStack(alignment: .leading, spacing: 10) {
+            Button { showsDetails.toggle() } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: status.systemImage)
+                        .font(.system(size: 15))
+                        .foregroundStyle(status.needsAttention ? Color.orange : Color.secondary)
+                        .frame(width: 28, height: 32)
+                        .background(LensTheme.surface, in: RoundedRectangle(cornerRadius: 7))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title).font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1).truncationMode(.middle)
+                        Text(status.needsAttention ? status.title : "\(counts.totalItems.formatted()) items")
+                            .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: showsDetails ? "chevron.down" : "chevron.up")
+                        .font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Catalogue details")
+            .accessibilityLabel("Catalogue: " + title)
+            .accessibilityValue(showsDetails ? "Expanded" : "Collapsed")
 
-            Text(subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if catalogue != nil || rootURL != nil {
-                HStack(spacing: 10) {
-                    SidebarFooterMetric(value: counts.totalItems, label: "Items")
+            if showsDetails {
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 14) {
                     SidebarFooterMetric(value: counts.photoLikeItems, label: "Photos")
                     SidebarFooterMetric(value: counts.videoLikeItems, label: "Videos")
                 }
-                .padding(.top, 2)
-
-                Text(detailPath)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-
-                Button {
-                    chooseDifferentFolder()
-                } label: {
-                    Label("Switch Catalogue", systemImage: "rectangle.stack.badge.person.crop")
+                Text(detailPath).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+            }
+            if catalogue != nil || rootURL != nil {
+                Button(action: chooseDifferentFolder) {
+                    HStack {
+                        Text("Switch Catalogue")
+                        Spacer()
+                        Image(systemName: "arrow.left.arrow.right")
+                    }
+                    .font(.system(size: 11))
                 }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .padding(.top, 4)
-                .help("Choose, open, or create a catalogue")
+                .buttonStyle(LensQuietButtonStyle())
+                .help("Choose, open, or create a catalogue · ⇧⌘O")
             }
         }
-        .padding(12)
+        .padding(LensTheme.compactInset)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.65))
+        .background(LensTheme.sidebar)
     }
 
     private var title: String {
@@ -1152,7 +923,7 @@ private struct StatusBanner: View {
         }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
-            .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(LensTheme.surface, in: RoundedRectangle(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(Color.orange.opacity(0.28), lineWidth: 1)
@@ -1197,13 +968,14 @@ private struct SidebarNavigationSection: View {
     }
 
     var body: some View {
-        Section(title) {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title).lensEyebrow().padding(.horizontal, 10).padding(.bottom, 5)
             ForEach(sections) { section in
-                SidebarRow(
-                    section: section,
-                    count: appState.sidebarCount(for: section)
-                )
-                .tag(section)
+                Button { appState.select(section) } label: {
+                    SidebarRow(section: section, count: appState.sidebarCount(for: section), isSelected: section == appState.selectedSection)
+                }
+                .buttonStyle(LensQuietButtonStyle())
+                .accessibilityAddTraits(section == appState.selectedSection ? .isSelected : [])
             }
         }
     }
@@ -1212,47 +984,45 @@ private struct SidebarNavigationSection: View {
 private struct SidebarRow: View {
     let section: SidebarSection
     let count: Int?
-
+    let isSelected: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
     var body: some View {
-        Label {
-            HStack(spacing: 8) {
-                Text(section.title)
-                Spacer(minLength: 8)
-                countBadge
-            }
-        } icon: {
+        HStack(spacing: 10) {
             Image(systemName: section.systemImage)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .frame(width: 18)
+                .accessibilityHidden(true)
+            Text(section.title)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            if let count, count > 0 {
+                Text(count.formatted(.number.notation(.compactName)))
+                    .font(.system(size: 11, weight: .medium)).monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
         }
-        .labelStyle(.titleAndIcon)
-        .padding(.vertical, 3)
+        .padding(.horizontal, 3).frame(height: LensTheme.rowHeight - 12)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 7).fill(LensTheme.selectedFill)
+                    .padding(.horizontal, -8).padding(.vertical, -6)
+            }
+        }
+        .overlay {
+            if isSelected && contrast == .increased {
+                RoundedRectangle(cornerRadius: 7).strokeBorder(Color.accentColor, lineWidth: 1)
+                    .padding(.horizontal, -8).padding(.vertical, -6)
+            }
+        }
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(section.title)
         .accessibilityValue(count.map { "\($0) items" } ?? "")
     }
-
-    @ViewBuilder
-    private var countBadge: some View {
-        if let count, count > 0 {
-            Text(shortCount(count))
-                .font(.caption.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(.quaternary.opacity(0.55), in: Capsule())
-                .accessibilityLabel("\(count) items")
-        }
-    }
-
-    private func shortCount(_ value: Int) -> String {
-        if value >= 1_000_000 {
-            return "\(value / 1_000_000)M"
-        }
-        if value >= 10_000 {
-            return "\(value / 1_000)K"
-        }
-        return "\(value)"
-    }
 }
+
 
 private struct SidebarFooterMetric: View {
     let value: Int

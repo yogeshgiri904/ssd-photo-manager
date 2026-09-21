@@ -1,1 +1,4 @@
 /dist/
+
+# Local documentation, test sources, verification images, and support tooling
+/LocalSupport/

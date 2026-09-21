@@ -115,7 +115,7 @@ struct FoldersView: View {
                     if isLoadingFolder {
                         ProgressView("Loading Folder")
                             .padding(14)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            .background(LensTheme.surface, in: RoundedRectangle(cornerRadius: 8))
                             .accessibilityLabel("Loading folder")
                     }
                 }
@@ -201,37 +201,13 @@ struct FoldersView: View {
                 }
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.horizontal, LensTheme.pageInset)
+        .padding(.vertical, 18)
+        .background(LensTheme.sidebar)
     }
 
     private var titleBlock: some View {
-        HStack(spacing: 12) {
-            Image(systemName: selectedFolderPath == nil ? "folder" : "folder.fill")
-                .font(.title2)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 28)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 7) {
-                    Text("Folders")
-                        .font(.title2.weight(.semibold))
-                    if let selectedFolderPath {
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                        Text(folderName(for: selectedFolderPath))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
-
-                Text(folderSubtitle)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        }
+        LensSectionTitle(title: selectedFolderPath.map { folderName(for: $0) } ?? "Folders", subtitle: folderSubtitle, symbol: "folder")
     }
 
     @ViewBuilder

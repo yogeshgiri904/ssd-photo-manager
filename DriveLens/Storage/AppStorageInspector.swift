@@ -149,14 +149,21 @@ enum AppStorageInspector {
         let paths = CataloguePaths(rootURL: rootURL)
         let manager = FileManager.default
         let isStoredOnMac = isMacApplicationSupportCatalogueStorage(rootURL)
-        let catalogueDirectoryBytes = allocatedSize(of: paths.catalogueDirectory)
         let databaseBytes = fileFamilySize(for: paths.databaseURL)
         let manifestBytes = allocatedSize(of: paths.manifestURL)
         let thumbnailBytes = allocatedSize(of: paths.thumbnailsDirectory)
         let videoThumbnailBytes = allocatedSize(of: paths.videoThumbnailsDirectory)
         let geocodingBytes = allocatedSize(of: paths.geocodingCacheDirectory)
         let tempBytes = allocatedSize(of: paths.tempDirectory)
-        let knownBytes = databaseBytes + manifestBytes + thumbnailBytes + videoThumbnailBytes + geocodingBytes + tempBytes
+        // Known caches are already measured above. Do not walk every thumbnail a second time.
+        let knownNames = Set([
+            paths.databaseURL.lastPathComponent, paths.databaseURL.lastPathComponent + "-wal", paths.databaseURL.lastPathComponent + "-shm",
+            paths.manifestURL.lastPathComponent, paths.thumbnailsDirectory.lastPathComponent, paths.videoThumbnailsDirectory.lastPathComponent,
+            paths.geocodingCacheDirectory.lastPathComponent, paths.tempDirectory.lastPathComponent
+        ])
+        let supportFiles = (try? manager.contentsOfDirectory(at: paths.catalogueDirectory, includingPropertiesForKeys: nil)) ?? []
+        let otherBytes = supportFiles.filter { !knownNames.contains($0.lastPathComponent) }
+            .reduce(Int64(0)) { $0 + allocatedSize(of: $1) }
         let metrics = readMetrics(from: paths.databaseURL)
         let isActive = catalogue.path == activePath
 
@@ -178,7 +185,7 @@ enum AppStorageInspector {
             videoThumbnailBytes: videoThumbnailBytes,
             geocodingCacheBytes: geocodingBytes,
             tempBytes: tempBytes,
-            otherBytes: max(catalogueDirectoryBytes - knownBytes, 0),
+            otherBytes: otherBytes,
             itemCount: metrics?.itemCount,
             photoCount: metrics?.photoCount,
             videoCount: metrics?.videoCount,
@@ -294,11 +301,12 @@ private extension AppStorageInspector {
           SUM(CASE WHEN media_type = 'photo' THEN 1 ELSE 0 END),
           SUM(CASE WHEN media_type = 'video' THEN 1 ELSE 0 END),
           SUM(CASE WHEN is_missing = 1 THEN 1 ELSE 0 END),
-          SUM(CASE WHEN (hasContentHash ? "content_hash IS NOT NULL AND content_hash != ''" : "0") THEN 1 ELSE 0 END)
+          SUM(CASE WHEN \(hasContentHash ? "content_hash IS NOT NULL AND content_hash != ''" : "0") THEN 1 ELSE 0 END)
         FROM media_items;
         """
 
         let countValues = readIntRow(sql: countsSQL, db: db, columns: 5)
+        guard countValues.count == 5 else { return nil }
         let duplicateGroupCount = hasContentHash ? readIntValue(sql: """
         SELECT COUNT(*)
         FROM (
@@ -344,12 +352,12 @@ private extension AppStorageInspector {
     static func readIntRow(sql: String, db: OpaquePointer?, columns: Int) -> [Int] {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            return Array(repeating: 0, count: columns)
+            return []
         }
         defer { sqlite3_finalize(statement) }
 
         guard sqlite3_step(statement) == SQLITE_ROW else {
-            return Array(repeating: 0, count: columns)
+            return []
         }
 
         return (0..<columns).map { Int(sqlite3_column_int(statement, Int32($0))) }

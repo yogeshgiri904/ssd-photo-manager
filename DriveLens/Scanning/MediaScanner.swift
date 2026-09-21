@@ -69,6 +69,13 @@ final class MediaScanner {
         let startedAt = Date()
         var current = ScanProgress(status: .discovering, startedAt: startedAt)
         progress(current)
+        var lastProgressPublication = ContinuousClock.now
+        func publishProgress() {
+            let now = ContinuousClock.now
+            guard lastProgressPublication.duration(to: now) >= .milliseconds(100) else { return }
+            lastProgressPublication = now
+            progress(current)
+        }
 
         let scanRoots = normalizedScopeURLs(scopeURLs)
         let discovered = try discoverFiles(in: scanRoots)
@@ -77,10 +84,9 @@ final class MediaScanner {
         current.status = .scanning
         progress(current)
 
-        let existing = rebuild ? [:] : try database.existingFingerprints()
+        let existing = try database.existingFingerprints()
         var seenPaths = Set<String>()
         var changedItems: [MediaItem] = []
-        var allItemsForRebuild: [MediaItem] = []
 
         for fileURL in discovered.supported {
             try Task.checkCancellation()
@@ -104,7 +110,7 @@ final class MediaScanner {
 
             if !rebuild, existing[relativePath] == fingerprint {
                 current.alreadyIndexedFiles += 1
-                progress(current)
+                publishProgress()
                 continue
             }
 
@@ -125,7 +131,6 @@ final class MediaScanner {
             ) {
                 item = item.withUpdatedFingerprint(fileSize: size, modifiedAt: modifiedAt)
                 changedItems.append(item)
-                allItemsForRebuild.append(item)
                 if rebuild || existing[relativePath] == nil {
                     current.newFiles += 1
                 } else {
@@ -135,11 +140,12 @@ final class MediaScanner {
                 current.errors += 1
             }
 
-            progress(current)
+            publishProgress()
         }
 
+        try Task.checkCancellation()
         let scannedPrefixes = scanRoots.map { catalogueRelativePath(for: $0) }
-        let removed = rebuild ? [] : existing.keys.filter { path in
+        let removed = existing.keys.filter { path in
             pathIsInScannedScope(path, prefixes: scannedPrefixes) && !seenPaths.contains(path)
         }
         current.missingFiles = removed.count
@@ -159,16 +165,15 @@ final class MediaScanner {
             status: "completed"
         )
 
-        if rebuild {
-            try database.replaceAll(with: pairedItems(from: allItemsForRebuild), summary: summary)
-        } else {
-            try database.upsertChanged(
-                pairedItems(from: changedItems),
-                removedRelativePaths: Array(removed),
-                seenRelativePaths: Array(seenPaths),
-                summary: summary
-            )
-        }
+        // A rebuild refreshes extracted metadata while retaining IDs, user edits, favorites and albums.
+        // Missing originals remain recoverable catalogue entries instead of being deleted.
+        try Task.checkCancellation()
+        try database.upsertChanged(
+            pairedItems(from: changedItems),
+            removedRelativePaths: Array(removed),
+            seenRelativePaths: Array(seenPaths),
+            summary: summary
+        )
 
         var completed = current
         completed.status = .completed
@@ -183,12 +188,21 @@ final class MediaScanner {
         var seenPaths = Set<String>()
 
         for root in roots {
+            let rootValues = try root.resourceValues(forKeys: [.isDirectoryKey])
+            guard rootValues.isDirectory == true else {
+                throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: root.path])
+            }
+            var enumerationError: Error?
             guard let enumerator = FileManager.default.enumerator(
                 at: root,
                 includingPropertiesForKeys: keys,
-                options: [.skipsPackageDescendants]
+                options: [.skipsPackageDescendants],
+                errorHandler: { _, error in
+                    enumerationError = error
+                    return false
+                }
             ) else {
-                continue
+                throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: root.path])
             }
 
             for case let fileURL as URL in enumerator {
@@ -199,8 +213,8 @@ final class MediaScanner {
                     continue
                 }
 
-                let values = try? fileURL.resourceValues(forKeys: Set(keys))
-                guard values?.isRegularFile == true else { continue }
+                let values = try fileURL.resourceValues(forKeys: Set(keys))
+                guard values.isRegularFile == true else { continue }
 
                 if SupportedMedia.isSupported(url: fileURL) {
                     let path = fileURL.standardizedFileURL.path
@@ -211,6 +225,7 @@ final class MediaScanner {
                     unsupported += 1
                 }
             }
+            if let enumerationError { throw enumerationError }
         }
 
         return (supported, unsupported)

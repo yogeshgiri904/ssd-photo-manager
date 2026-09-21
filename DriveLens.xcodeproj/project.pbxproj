@@ -39,6 +39,10 @@
 		00000000000000000000011E /* Views/SmartAlbums/SmartAlbumsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000220 /* Views/SmartAlbums/SmartAlbumsView.swift */; };
 		00000000000000000000011F /* Views/Components/MediaQuickActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000221 /* Views/Components/MediaQuickActions.swift */; };
 		000000000000000000000120 /* Views/Components/MediaQuickFilterBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000222 /* Views/Components/MediaQuickFilterBar.swift */; };
+		000000000000000000000123 /* Views/Components/LensDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000223 /* Views/Components/LensDesignSystem.swift */; };
+		000000000000000000000124 /* Models/TimelineSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000224 /* Models/TimelineSections.swift */; };
+		000000000000000000000125 /* Storage/SafeMediaFileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000225 /* Storage/SafeMediaFileOperations.swift */; };
+		000000000000000000000126 /* Thumbnails/MediaImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000226 /* Thumbnails/MediaImageLoader.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -77,6 +81,10 @@
 		000000000000000000000220 /* Views/SmartAlbums/SmartAlbumsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SmartAlbums/SmartAlbumsView.swift; sourceTree = "<group>"; };
 		000000000000000000000221 /* Views/Components/MediaQuickActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Components/MediaQuickActions.swift; sourceTree = "<group>"; };
 		000000000000000000000222 /* Views/Components/MediaQuickFilterBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Components/MediaQuickFilterBar.swift; sourceTree = "<group>"; };
+		000000000000000000000223 /* Views/Components/LensDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/Components/LensDesignSystem.swift; sourceTree = "<group>"; };
+		000000000000000000000224 /* Models/TimelineSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/TimelineSections.swift; sourceTree = "<group>"; };
+		000000000000000000000225 /* Storage/SafeMediaFileOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage/SafeMediaFileOperations.swift; sourceTree = "<group>"; };
+		000000000000000000000226 /* Thumbnails/MediaImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Thumbnails/MediaImageLoader.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -104,6 +112,10 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000201 /* App/DriveLensApp.swift */,
+				000000000000000000000224 /* Models/TimelineSections.swift */,
+				000000000000000000000226 /* Thumbnails/MediaImageLoader.swift */,
+				000000000000000000000225 /* Storage/SafeMediaFileOperations.swift */,
+				000000000000000000000223 /* Views/Components/LensDesignSystem.swift */,
 				000000000000000000000202 /* App/AppState.swift */,
 				000000000000000000000203 /* Models/MediaItem.swift */,
 				000000000000000000000204 /* Models/NavigationDestination.swift */,
@@ -226,6 +238,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000101 /* App/DriveLensApp.swift in Sources */,
+				000000000000000000000124 /* Models/TimelineSections.swift in Sources */,
+				000000000000000000000126 /* Thumbnails/MediaImageLoader.swift in Sources */,
+				000000000000000000000125 /* Storage/SafeMediaFileOperations.swift in Sources */,
+				000000000000000000000123 /* Views/Components/LensDesignSystem.swift in Sources */,
 				000000000000000000000102 /* App/AppState.swift in Sources */,
 				000000000000000000000103 /* Models/MediaItem.swift in Sources */,
 				000000000000000000000104 /* Models/NavigationDestination.swift in Sources */,

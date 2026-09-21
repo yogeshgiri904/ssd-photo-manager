@@ -9,15 +9,23 @@ struct CatalogueFolderRemovalResult: Sendable {
 final class CatalogueDatabase {
     private var db: OpaquePointer?
     private let isoFormatter = ISO8601DateFormatter()
+    private let isoParser = Date.ISO8601FormatStyle()
 
     init(databaseURL: URL) throws {
-        if sqlite3_open(databaseURL.path, &db) != SQLITE_OK {
-            throw CatalogueDatabaseError.openFailed(message: lastError)
+        do {
+            if sqlite3_open(databaseURL.path, &db) != SQLITE_OK {
+                throw CatalogueDatabaseError.openFailed(message: lastError)
+            }
+            try execute("PRAGMA journal_mode=WAL;")
+            try execute("PRAGMA synchronous=NORMAL;")
+            try execute("PRAGMA foreign_keys=ON;")
+            try migrate()
+        } catch {
+            // Swift does not run this class's deinit when its initializer throws.
+            sqlite3_close(db)
+            db = nil
+            throw error
         }
-        try execute("PRAGMA journal_mode=WAL;")
-        try execute("PRAGMA synchronous=NORMAL;")
-        try execute("PRAGMA foreign_keys=ON;")
-        try migrate()
     }
 
     deinit {
@@ -29,6 +37,7 @@ final class CatalogueDatabase {
             try execute("DELETE FROM media_items;")
             try execute("DELETE FROM folders;")
             for item in items {
+                try Task.checkCancellation()
                 try upsert(item)
             }
             try rebuildFolders()
@@ -41,6 +50,7 @@ final class CatalogueDatabase {
             try markMissing(relativePaths: removedRelativePaths)
             try markAvailable(relativePaths: seenRelativePaths)
             for item in items {
+                try Task.checkCancellation()
                 try upsert(item)
             }
             try rebuildFolders()
@@ -118,6 +128,7 @@ final class CatalogueDatabase {
             filename = ?,
             file_size = ?,
             modified_at = ?,
+            modified_at_precise = NULL,
             is_missing = 0,
             updated_at = ?
         WHERE id = ?
@@ -161,8 +172,20 @@ final class CatalogueDatabase {
         return repairedCount
     }
 
-    func compact() throws {
-        try execute("VACUUM;")
+    /// Use a dedicated connection so maintenance never blocks the main actor or
+    /// shares the UI's connection across executors. Opening must not create a file.
+    static func compact(databaseURL: URL) throws {
+        var connection: OpaquePointer?
+        guard sqlite3_open_v2(databaseURL.path, &connection, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
+            let message = connection.map { String(cString: sqlite3_errmsg($0)) } ?? "Could not open catalogue"
+            sqlite3_close(connection)
+            throw CatalogueDatabaseError.openFailed(message: message)
+        }
+        defer { sqlite3_close(connection) }
+        sqlite3_busy_timeout(connection, 1000)
+        guard sqlite3_exec(connection, "VACUUM;", nil, nil, nil) == SQLITE_OK else {
+            throw CatalogueDatabaseError.writeFailed(message: String(cString: sqlite3_errmsg(connection)))
+        }
     }
 
     @discardableResult
@@ -201,6 +224,7 @@ final class CatalogueDatabase {
                 filename = ?,
                 file_size = ?,
                 modified_at = ?,
+                modified_at_precise = NULL,
                 updated_at = ?
             WHERE id = ?;
             """
@@ -219,8 +243,8 @@ final class CatalogueDatabase {
             bind(statement, 6, isoFormatter.string(from: Date()))
             sqlite3_bind_int64(statement, 7, id)
 
-            guard sqlite3_step(statement) == SQLITE_DONE else {
-                throw CatalogueDatabaseError.writeFailed(message: lastError)
+            guard sqlite3_step(statement) == SQLITE_DONE, sqlite3_changes(db) == 1 else {
+                throw CatalogueDatabaseError.writeFailed(message: "The item changed or is no longer in this catalogue.")
             }
 
             try rebuildFolders()
@@ -228,7 +252,7 @@ final class CatalogueDatabase {
     }
 
     func existingFingerprints() throws -> [String: FileFingerprint] {
-        let sql = "SELECT relative_path, file_size, modified_at FROM media_items;"
+        let sql = "SELECT relative_path, file_size, modified_at, modified_at_precise FROM media_items;"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw CatalogueDatabaseError.prepareFailed(message: lastError)
@@ -239,7 +263,7 @@ final class CatalogueDatabase {
         while sqlite3_step(statement) == SQLITE_ROW {
             let path = textColumn(statement, 0)
             let size = sqlite3_column_int64(statement, 1)
-            let modified = dateColumn(statement, 2) ?? .distantPast
+            let modified = optionalDoubleColumn(statement, 3).map { Date(timeIntervalSince1970: $0) } ?? dateColumn(statement, 2) ?? .distantPast
             results[path] = FileFingerprint(fileSize: size, modifiedAt: modified)
         }
         return results
@@ -358,6 +382,32 @@ final class CatalogueDatabase {
 
         guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
         return Int(sqlite3_column_int(statement, 0))
+    }
+
+    func fetchMedia(id: Int64) throws -> MediaItem? {
+        let sql = """
+        SELECT id, relative_path, folder_path, filename, media_type, live_photo_group_id,
+               capture_date, capture_date_local, date_source, width, height, orientation,
+               duration_seconds, file_size, modified_at, camera_make, camera_model, lens_model,
+               caption, keywords, latitude, longitude, city, state, country, location_source,
+               thumbnail_path, video_thumbnail_path, is_missing, added_at, updated_at, user_keywords, user_caption, is_favorite
+        FROM media_items
+        WHERE id = ?;
+        """
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw CatalogueDatabaseError.prepareFailed(message: lastError)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_int64(statement, 1, id)
+        let result = sqlite3_step(statement)
+        if result == SQLITE_DONE { return nil }
+        guard result == SQLITE_ROW else {
+            throw CatalogueDatabaseError.prepareFailed(message: lastError)
+        }
+        return readMediaItem(from: statement)
     }
 
     func fetchMedia(limit: Int, offset: Int) throws -> [MediaItem] {
@@ -1417,6 +1467,11 @@ final class CatalogueDatabase {
         );
         """)
 
+        // Older catalogues stored only whole seconds, causing every fractional-mtime file to rescan.
+        if !columnExists("modified_at_precise", in: "media_items") {
+            try execute("ALTER TABLE media_items ADD COLUMN modified_at_precise REAL;")
+        }
+
         try execute("CREATE INDEX IF NOT EXISTS idx_media_capture_date ON media_items(capture_date);")
         try execute("CREATE INDEX IF NOT EXISTS idx_media_folder ON media_items(folder_path);")
         try execute("CREATE INDEX IF NOT EXISTS idx_media_filename_nocase ON media_items(filename COLLATE NOCASE);")
@@ -1437,8 +1492,8 @@ final class CatalogueDatabase {
           capture_date, capture_date_local, date_source, width, height, orientation,
           duration_seconds, file_size, modified_at, camera_make, camera_model, lens_model,
           caption, keywords, latitude, longitude, city, state, country, location_source,
-          thumbnail_path, video_thumbnail_path, is_missing, added_at, updated_at, content_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          thumbnail_path, video_thumbnail_path, is_missing, added_at, updated_at, content_hash, modified_at_precise
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
         ON CONFLICT(relative_path) DO UPDATE SET
           folder_path=excluded.folder_path,
           filename=excluded.filename,
@@ -1453,6 +1508,7 @@ final class CatalogueDatabase {
           duration_seconds=excluded.duration_seconds,
           file_size=excluded.file_size,
           modified_at=excluded.modified_at,
+          modified_at_precise=excluded.modified_at_precise,
           camera_make=CASE WHEN media_items.user_camera_details_override = 1 THEN media_items.camera_make ELSE excluded.camera_make END,
           camera_model=CASE WHEN media_items.user_camera_details_override = 1 THEN media_items.camera_model ELSE excluded.camera_model END,
           lens_model=CASE WHEN media_items.user_camera_details_override = 1 THEN media_items.lens_model ELSE excluded.lens_model END,
@@ -1510,6 +1566,7 @@ final class CatalogueDatabase {
         sqlite3_bind_int(statement, 28, item.isMissing ? 1 : 0)
         bind(statement, 29, isoFormatter.string(from: item.addedAt))
         bind(statement, 30, isoFormatter.string(from: item.updatedAt))
+        bind(statement, 31, item.modifiedAt.timeIntervalSince1970)
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw CatalogueDatabaseError.writeFailed(message: lastError)
@@ -1541,27 +1598,28 @@ final class CatalogueDatabase {
     private func setMissing(_ isMissing: Bool, relativePaths: [String]) throws {
         guard !relativePaths.isEmpty else { return }
 
-        let sql = "UPDATE media_items SET is_missing = ?, updated_at = ? WHERE relative_path = ?;"
+        let sql = "UPDATE media_items SET is_missing = ?, updated_at = ? WHERE relative_path = ? AND is_missing != ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw CatalogueDatabaseError.prepareFailed(message: lastError)
+        }
+        defer { sqlite3_finalize(statement) }
+        let updatedAt = isoFormatter.string(from: Date())
         for path in relativePaths {
-            var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-                throw CatalogueDatabaseError.prepareFailed(message: lastError)
-            }
-
+            try Task.checkCancellation()
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
             sqlite3_bind_int(statement, 1, isMissing ? 1 : 0)
-            bind(statement, 2, isoFormatter.string(from: Date()))
+            bind(statement, 2, updatedAt)
             bind(statement, 3, path)
-
-            let stepResult = sqlite3_step(statement)
-            sqlite3_finalize(statement)
-
-            guard stepResult == SQLITE_DONE else {
+            sqlite3_bind_int(statement, 4, isMissing ? 1 : 0)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw CatalogueDatabaseError.writeFailed(message: lastError)
             }
         }
     }
 
-    private func markLivePhoto(photo: MediaItem, video: MediaItem) throws {
+    private func markLivePhoto(photo: LivePhotoRepairItem, video: LivePhotoRepairItem) throws {
         let sql = """
         UPDATE media_items
         SET media_type = 'livePhoto',
@@ -1684,6 +1742,7 @@ final class CatalogueDatabase {
         try execute("BEGIN IMMEDIATE TRANSACTION;")
         do {
             try work()
+            try Task.checkCancellation()
             try execute("COMMIT;")
         } catch {
             try? execute("ROLLBACK;")
@@ -2069,28 +2128,35 @@ final class CatalogueDatabase {
         return years
     }
 
-    private func fetchAllMediaItemsForPairing() throws -> [MediaItem] {
+    private func fetchAllMediaItemsForPairing() throws -> [LivePhotoRepairItem] {
+        // Pairing needs six fields, not full metadata and five parsed dates per record.
+        // With no unpaired videos there is no repair work at all (the common repeat-open path).
         let sql = """
-        SELECT id, relative_path, folder_path, filename, media_type, live_photo_group_id,
-               capture_date, capture_date_local, date_source, width, height, orientation,
-               duration_seconds, file_size, modified_at, camera_make, camera_model, lens_model,
-               caption, keywords, latitude, longitude, city, state, country, location_source,
-               thumbnail_path, video_thumbnail_path, is_missing, added_at, updated_at, user_keywords, user_caption, is_favorite
+        SELECT relative_path, media_type, live_photo_group_id, capture_date, duration_seconds, video_thumbnail_path
         FROM media_items
         WHERE media_type IN ('photo', 'video', 'livePhoto')
+          AND EXISTS (SELECT 1 FROM media_items WHERE media_type = 'video')
         ORDER BY folder_path COLLATE NOCASE ASC, filename COLLATE NOCASE ASC;
         """
-
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw CatalogueDatabaseError.prepareFailed(message: lastError)
         }
         defer { sqlite3_finalize(statement) }
-
-        var items: [MediaItem] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            items.append(readMediaItem(from: statement))
+        var items: [LivePhotoRepairItem] = []
+        var result = sqlite3_step(statement)
+        while result == SQLITE_ROW {
+            items.append(LivePhotoRepairItem(
+                relativePath: textColumn(statement, 0),
+                kind: MediaKind(rawValue: textColumn(statement, 1)) ?? .photo,
+                livePhotoGroupID: optionalTextColumn(statement, 2),
+                captureDate: dateColumn(statement, 3) ?? .distantPast,
+                duration: optionalDoubleColumn(statement, 4),
+                videoThumbnailPath: optionalTextColumn(statement, 5)
+            ))
+            result = sqlite3_step(statement)
         }
+        guard result == SQLITE_DONE else { throw CatalogueDatabaseError.prepareFailed(message: lastError) }
         return items
     }
 
@@ -2202,7 +2268,10 @@ final class CatalogueDatabase {
     }
 
     private func dateColumn(_ statement: OpaquePointer?, _ index: Int32) -> Date? {
-        optionalTextColumn(statement, index).flatMap { isoFormatter.date(from: $0) }
+        optionalTextColumn(statement, index).flatMap {
+            // Value-style ISO parsing avoids DateFormatter's per-field ICU overhead.
+            (try? isoParser.parse($0)) ?? isoFormatter.date(from: $0)
+        }
     }
 
     private static func localDateText(_ date: Date) -> String {
@@ -2215,12 +2284,21 @@ final class CatalogueDatabase {
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-private struct LivePhotoRepairPair {
-    let photo: MediaItem
-    let video: MediaItem
+private struct LivePhotoRepairItem {
+    let relativePath: String
+    let kind: MediaKind
+    let livePhotoGroupID: String?
+    let captureDate: Date
+    let duration: Double?
+    let videoThumbnailPath: String?
 }
 
-private func livePhotoRepairPairs(from items: [MediaItem]) -> [LivePhotoRepairPair] {
+private struct LivePhotoRepairPair {
+    let photo: LivePhotoRepairItem
+    let video: LivePhotoRepairItem
+}
+
+private func livePhotoRepairPairs(from items: [LivePhotoRepairItem]) -> [LivePhotoRepairPair] {
     var pairs: [LivePhotoRepairPair] = []
     var consumedPhotoPaths = Set<String>()
     var consumedVideoPaths = Set<String>()
@@ -2271,7 +2349,7 @@ private func livePhotoRepairPairs(from items: [MediaItem]) -> [LivePhotoRepairPa
     return pairs
 }
 
-private extension MediaItem {
+private extension LivePhotoRepairItem {
     var livePhotoStemKey: String {
         let path = NSString(string: relativePath)
         let folder = path.deletingLastPathComponent == "." ? "" : path.deletingLastPathComponent
@@ -2519,6 +2597,10 @@ private struct MediaQuery {
 struct FileFingerprint: Equatable {
     let fileSize: Int64
     let modifiedAt: Date
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.fileSize == rhs.fileSize && lhs.modifiedAt.timeIntervalSince1970 == rhs.modifiedAt.timeIntervalSince1970
+    }
 }
 
 enum CatalogueDatabaseError: LocalizedError {

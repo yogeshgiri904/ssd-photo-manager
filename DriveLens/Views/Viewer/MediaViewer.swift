@@ -72,13 +72,13 @@ struct MediaViewer: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(LensTheme.sidebar)
         .focusable()
         .focused($isKeyboardFocused)
         .onAppear {
             isKeyboardFocused = true
         }
-        .task(id: appState.selectedMediaItem?.id) {
+        .task(id: imageLoadIdentity) {
             await loadSelectedItem()
         }
         .onDisappear {
@@ -103,10 +103,10 @@ struct MediaViewer: View {
     private func imagePreview(for item: MediaItem) -> some View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
-                let stageSize = containedStageSize(in: geometry.size)
+                let stageSize = geometry.size
 
                 ZStack {
-                    Color(nsColor: .textBackgroundColor)
+                    Color(white: 0.065)
 
                     if let image {
                         CenteredZoomImageView(
@@ -148,6 +148,8 @@ struct MediaViewer: View {
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .environment(\.colorScheme, .dark)
                 .gesture(
                     MagnificationGesture()
                         .updating($gestureScale) { value, state, _ in
@@ -175,9 +177,9 @@ struct MediaViewer: View {
     }
 
     private func videoPreview(for item: MediaItem) -> some View {
-        HStack(spacing: 0) {
+        VStack(spacing: 0) {
             ZStack {
-                Color.black
+                Color(white: 0.065)
 
                 if let player = videoController.player {
                     AspectFitVideoPlayer(player: player)
@@ -194,7 +196,7 @@ struct MediaViewer: View {
                     } else if videoController.canControlPlayback && !videoController.isPlaying {
                         Button(action: togglePlayback) {
                             Label("Play Video", systemImage: "play.fill")
-                                .font(.title2.weight(.semibold))
+                                .font(LensTheme.title)
                                 .labelStyle(.iconOnly)
                                 .foregroundStyle(.white)
                                 .frame(width: 64, height: 64)
@@ -223,12 +225,18 @@ struct MediaViewer: View {
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+            .environment(\.colorScheme, .dark)
 
             Divider()
 
-            ViewerDetailsPanel(item: item)
-                .frame(width: 280)
+            ViewerStatusBar(item: item)
         }
+    }
+
+    private var imageLoadIdentity: String {
+        guard let item = appState.selectedMediaItem else { return "" }
+        return "\(originalURL(for: item)?.path ?? "")|\(item.id)|\(item.updatedAt.timeIntervalSince1970)"
     }
 
     private func loadSelectedItem() async {
@@ -260,12 +268,16 @@ struct MediaViewer: View {
                 return
             }
             await videoController.load(url: url)
-        } else if let data = await Task.detached(priority: .userInitiated, operation: {
-            try? Data(contentsOf: url, options: [.mappedIfSafe, .uncached])
-        }).value, !Task.isCancelled, let loadedImage = NSImage(data: data) {
-            image = loadedImage
         } else {
-            imageLoadFailed = true
+            let decoded = await OriginalImageLoader.shared.load(url)
+            // A cancelled selection must not replace the next photo's image or failure state.
+            guard !Task.isCancelled, appState.selectedMediaItem?.id == item.id,
+                  originalURL(for: item) == url else { return }
+            if let decoded {
+                image = NSImage(cgImage: decoded, size: NSSize(width: decoded.width, height: decoded.height))
+            } else {
+                imageLoadFailed = true
+            }
         }
     }
 
@@ -448,16 +460,10 @@ struct MediaViewer: View {
                     Label("Reveal in Finder", systemImage: "finder")
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
         .foregroundStyle(.white)
         .accessibilityLabel("Video unavailable")
-    }
-
-    private func containedStageSize(in size: CGSize) -> CGSize {
-        CGSize(
-            width: max(1, size.width - 48),
-            height: max(1, size.height - 48)
-        )
     }
 
     private func clampedScale(_ value: CGFloat) -> CGFloat {
@@ -677,11 +683,8 @@ private struct CenteredZoomImageView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let documentView = scrollView.documentView as? CenteredImageDocumentView else { return }
 
-        let contentSize = scrollView.contentSize
-        let viewportSize = CGSize(
-            width: max(stageSize.width, contentSize.width),
-            height: max(stageSize.height, contentSize.height)
-        )
+        // Use the current SwiftUI viewport, not the scroll view's previous size during resizing.
+        let viewportSize = CGSize(width: max(1, stageSize.width), height: max(1, stageSize.height))
         let itemChanged = context.coordinator.itemID != itemID
         let imageChanged = context.coordinator.image !== image
         let scaleChanged = abs(context.coordinator.scale - scale) > 0.001
@@ -697,9 +700,8 @@ private struct CenteredZoomImageView: NSViewRepresentable {
         if documentView.frame.size != documentSize {
             documentView.setFrameSize(documentSize)
         }
-        documentView.needsDisplay = true
-
         if itemChanged || imageChanged || scaleChanged || rotationChanged || viewportChanged {
+            documentView.needsDisplay = true
             centerVisibleContent(in: scrollView)
             DispatchQueue.main.async { [weak scrollView] in
                 guard let scrollView else { return }
@@ -748,14 +750,8 @@ private final class CenteredImageDocumentView: NSView {
     }
 
     func preferredDocumentSize() -> CGSize {
-        let fittedSize = fittedImageSize()
-        let zoomedSize = CGSize(width: fittedSize.width * scale, height: fittedSize.height * scale)
-        let rotatedSize = rotatedBoundingSize(for: zoomedSize)
-        let inset: CGFloat = 48
-
-        return CGSize(
-            width: max(viewportSize.width, rotatedSize.width + inset),
-            height: max(viewportSize.height, rotatedSize.height + inset)
+        ViewerImageGeometry.documentSize(
+            image: image?.size ?? .zero, viewport: viewportSize, rotation: rotationRadians, scale: scale
         )
     }
 
@@ -790,31 +786,33 @@ private final class CenteredImageDocumentView: NSView {
     }
 
     private func fittedImageSize() -> CGSize {
-        guard let image, image.size.width > 0, image.size.height > 0 else {
-            return CGSize(width: max(1, viewportSize.width), height: max(1, viewportSize.height))
-        }
+        ViewerImageGeometry.fittedSize(image: image?.size ?? .zero, viewport: viewportSize, rotation: rotationRadians)
+    }
+}
 
-        let availableSize = CGSize(
-            width: max(1, viewportSize.width),
-            height: max(1, viewportSize.height)
-        )
-        let ratio = min(availableSize.width / image.size.width, availableSize.height / image.size.height)
+/// One fit calculation for drawing and scrolling, including rotation and a consistent canvas inset.
+enum ViewerImageGeometry {
+    static let inset: CGFloat = 20
 
-        return CGSize(
-            width: max(1, image.size.width * ratio),
-            height: max(1, image.size.height * ratio)
-        )
+    static func rotatedSize(_ size: CGSize, rotation: Double) -> CGSize {
+        let cosine = abs(cos(rotation)), sine = abs(sin(rotation))
+        return CGSize(width: size.width * cosine + size.height * sine,
+                      height: size.width * sine + size.height * cosine)
     }
 
-    private func rotatedBoundingSize(for size: CGSize) -> CGSize {
-        let radians = CGFloat(rotationRadians)
-        let cosine = abs(cos(radians))
-        let sine = abs(sin(radians))
+    static func fittedSize(image: CGSize, viewport: CGSize, rotation: Double) -> CGSize {
+        guard image.width > 0, image.height > 0 else { return .zero }
+        let bounds = rotatedSize(image, rotation: rotation)
+        let ratio = min(max(1, viewport.width - inset * 2) / bounds.width,
+                        max(1, viewport.height - inset * 2) / bounds.height)
+        return CGSize(width: image.width * ratio, height: image.height * ratio)
+    }
 
-        return CGSize(
-            width: size.width * cosine + size.height * sine,
-            height: size.width * sine + size.height * cosine
-        )
+    static func documentSize(image: CGSize, viewport: CGSize, rotation: Double, scale: CGFloat) -> CGSize {
+        let fitted = fittedSize(image: image, viewport: viewport, rotation: rotation)
+        let bounds = rotatedSize(CGSize(width: fitted.width * scale, height: fitted.height * scale), rotation: rotation)
+        return CGSize(width: max(viewport.width, bounds.width + inset * 2),
+                      height: max(viewport.height, bounds.height + inset * 2))
     }
 }
 
@@ -858,17 +856,15 @@ private struct ViewerNavigationOverlay: View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .labelStyle(.iconOnly)
-                .font(.title3.weight(.semibold))
-                .frame(width: 42, height: 54)
-                .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .strokeBorder(.primary.opacity(0.14), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.16), radius: 8, y: 3)
+        .background(Color(white: 0.16), in: Circle())
+        .overlay { Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1) }
+        .help(title)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 0.96 : 0.32)
         .keyboardShortcut(shortcut, modifiers: [.command])
@@ -896,106 +892,123 @@ private struct ViewerToolbar: View {
     let showOnMap: () -> Void
     let showInFolder: () -> Void
 
+    @State private var showingDetails = false
+    @State private var editingItem: MediaItem?
+
     var body: some View {
         HStack(spacing: 10) {
             Button(action: close) {
-                Label("Close", systemImage: "xmark")
+                Label("Back to Library", systemImage: "chevron.left")
+                    .frame(width: 20, height: 20)
             }
             .keyboardShortcut(.cancelAction)
-            .help("Close")
+            .help("Back to Library · Esc")
+            .accessibilityLabel("Back to Library")
 
-            Divider()
-                .frame(height: 22)
-
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(item.filename)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                Text(item.relativePath)
-                    .font(.caption)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(item.folderPath.isEmpty ? item.kind.label : item.folderPath)
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
             }
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(minWidth: 100, maxWidth: .infinity, alignment: .leading)
+            .help(item.relativePath)
 
-            Spacer(minLength: 12)
+            MediaFavoriteButton(items: [item])
+                .frame(width: 28)
+            AddToAlbumMenu(items: [item])
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 28)
 
-            ControlGroup {
-                MediaFavoriteButton(items: [item])
-                AddToAlbumMenu(items: [item])
-            }
+            Divider().frame(height: 20)
 
             if isImage {
-                ControlGroup {
+                HStack(spacing: 0) {
                     Button(action: zoomOut) {
                         Label("Zoom Out", systemImage: "minus.magnifyingglass")
+                            .frame(width: 22, height: 20)
                     }
+                    .disabled(scale <= 0.5)
                     .help("Zoom Out")
-
                     Button(action: fit) {
-                        Text("\(Int(scale * 100))%")
-                            .font(.caption.monospacedDigit().weight(.medium))
-                            .frame(minWidth: 42)
+                        Text(abs(scale - 1) < 0.01 ? "Fit" : "\(Int(scale * 100))%")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .frame(width: 40, height: 20)
                     }
-                    .help("Fit to Window")
-
+                    .help("Fit Image to Window")
+                    .accessibilityLabel("Fit Image to Window")
                     Button(action: zoomIn) {
                         Label("Zoom In", systemImage: "plus.magnifyingglass")
+                            .frame(width: 22, height: 20)
                     }
+                    .disabled(scale >= 5)
                     .help("Zoom In")
-
-                    Button(action: actualSize) {
-                        Label("Zoom to 200%", systemImage: "1.magnifyingglass")
-                    }
-                    .help("Zoom to 200%")
-
-                    Button(action: rotate) {
-                        Label("Rotate", systemImage: "rotate.right")
-                    }
-                    .help("Rotate Preview")
                 }
+                .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
             } else {
                 Button(action: toggleVideoPlayback) {
                     Label(isVideoPlaying ? "Pause Video" : "Play Video", systemImage: isVideoPlaying ? "pause.fill" : "play.fill")
+                        .frame(width: 24, height: 20)
                 }
                 .disabled(!canControlVideo)
-                .accessibilityLabel(isVideoPlaying ? "Pause video" : "Play video")
+                .help(isVideoPlaying ? "Pause Video · Space" : "Play Video · Space")
             }
 
-            ControlGroup {
-                Button(action: reveal) {
-                    Label("Reveal in Finder", systemImage: "finder")
-                }
-                .help("Reveal in Finder")
-
-                Button(action: copy) {
-                    Label("Copy Original", systemImage: "doc.on.doc")
-                }
-                .help("Copy Original")
-
-                Button(action: share) {
-                    Label("Share", systemImage: "square.and.arrow.up")
-                }
-                .help("Share")
+            Button { showingDetails.toggle() } label: {
+                Label("Media Details", systemImage: "info.circle")
+                    .frame(width: 20, height: 20)
+            }
+            .help("Media Details")
+            .popover(isPresented: $showingDetails) {
+                ScrollView { ViewerDetailsPanel(item: item) }
+                    .frame(width: 300, height: 380)
             }
 
             Menu {
-                Button("Timeline", action: showInTimeline)
-                Button("Map", action: showOnMap)
-                Button("Folder", action: showInFolder)
+                Button("Edit Metadata…", systemImage: "square.and.pencil") {
+                    editingItem = item
+                }
+                Divider()
+                if isImage {
+                    Button("Fit to Window", systemImage: "arrow.down.right.and.arrow.up.left", action: fit)
+                    Button("Zoom to 2×", systemImage: "plus.magnifyingglass", action: actualSize)
+                    Button("Rotate Clockwise", systemImage: "rotate.right", action: rotate)
+                    Divider()
+                }
+                Button("Reveal in Finder", systemImage: "finder", action: reveal)
+                Button("Copy Original…", systemImage: "doc.on.doc", action: copy)
+                Button("Share…", systemImage: "square.and.arrow.up", action: share)
+                Divider()
+                Menu("Show In") {
+                    Button("Timeline", action: showInTimeline)
+                    Button("Map", action: showOnMap)
+                    Button("Folder", action: showInFolder)
+                }
             } label: {
-                OptionsMenuLabel(title: "Show in", size: 30)
+                Label("More Actions", systemImage: "ellipsis")
+                    .frame(width: 24, height: 20)
             }
             .menuStyle(.borderlessButton)
-            .help("Show In")
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More Actions")
+            .accessibilityLabel("More Actions")
         }
         .labelStyle(.iconOnly)
-        .controlSize(.regular)
+        .font(.system(size: 13))
+        .buttonStyle(LensQuietButtonStyle())
+        .controlSize(.small)
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(.bar)
+        .frame(height: 56)
+        .background(LensTheme.sidebar)
+        .sheet(item: $editingItem) { item in
+            MediaMetadataEditorSheet(item: item)
+        }
     }
 }
 
@@ -1003,36 +1016,24 @@ private struct ViewerStatusBar: View {
     let item: MediaItem
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 14) {
-                metadata
+        HStack(spacing: 16) {
+            Label(item.kind.label, systemImage: item.kind == .video ? "film" : "photo")
+                .fixedSize()
+            Text(item.captureDateLocalText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            if let dimensions = dimensionsText {
+                Text(dimensions).monospacedDigit().fixedSize()
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                metadata
-            }
+            Text(ByteCountFormatter.string(fromByteCount: item.fileSize, countStyle: .file))
+                .fixedSize()
         }
-        .font(.caption.weight(.medium))
+        .font(.system(size: 11))
         .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    @ViewBuilder
-    private var metadata: some View {
-        Label(item.kind.label, systemImage: item.kind == .video ? "film" : "photo")
-        Label(item.captureDateLocalText, systemImage: "calendar")
-        if let dimensions = dimensionsText {
-            Label(dimensions, systemImage: "aspectratio")
-        }
-        if !item.cameraText.isEmpty {
-            Label(item.cameraText, systemImage: "camera")
-        }
-        if item.coordinate != nil {
-            Label(item.placeText.isEmpty ? "Location Available" : item.placeText, systemImage: "mappin.and.ellipse")
-        }
+        .padding(.horizontal, 16)
+        .frame(height: 32)
+        .background(LensTheme.sidebar)
     }
 
     private var dimensionsText: String? {
@@ -1070,7 +1071,7 @@ private struct ViewerDetailsPanel: View {
             Spacer()
         }
         .padding(18)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(LensTheme.sidebar)
     }
 
     private var durationText: String? {

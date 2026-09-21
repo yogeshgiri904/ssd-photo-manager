@@ -3,73 +3,101 @@ import SwiftUI
 struct MetadataInspectorView: View {
     @EnvironmentObject private var appState: AppState
     let item: MediaItem?
+    @State private var editingItem: MediaItem?
+    @State private var isFileDetailsExpanded = true
 
     var body: some View {
         let selectedItems = appState.selectedOrCurrentVisibleItems()
+        let isBatch = selectedItems.count > 1
         InspectorSidebar(
-            title: selectedItems.count > 1 ? "Batch Metadata" : "Inspector",
-            subtitle: selectedItems.count > 1 ? "\(selectedItems.count) items selected" : item?.filename ?? "No item selected",
-            systemImage: selectedItems.count > 1 ? "square.stack.3d.up" : itemSymbol,
-            isEmpty: item == nil && selectedItems.count < 2,
-            emptyTitle: "No Selection",
-            emptySystemImage: "sidebar.right",
-            emptyMessage: "Select a thumbnail to inspect metadata, preview media, or manage the original file."
+            title: isBatch ? "Selection" : "Inspector",
+            subtitle: isBatch ? "\(selectedItems.count) items" : "Media details",
+            systemImage: isBatch ? "square.stack" : "sidebar.right",
+            isEmpty: item == nil && !isBatch,
+            emptyTitle: "A closer look",
+            emptySystemImage: "photo.on.rectangle.angled",
+            emptyMessage: "Select a photo or video to see its details and edit metadata.",
+            scrollsContent: !isBatch
         ) {
-            if selectedItems.count > 1 {
-                BatchMetadataPanel(items: selectedItems)
-                    .environmentObject(appState)
+            if isBatch {
+                MetadataEditingPanel(items: selectedItems)
             } else if let item {
                 MediaInspectorSummary(item: item)
-                InspectorActionBar(item: item)
 
-                InspectorSection("Essentials") {
-                    InspectorRow("Created Date", item.captureDateLocalText)
-                    InspectorRow("Date Source", item.dateSource.label)
-                    InspectorRow("Location", item.placeText.isEmpty ? item.locationSource.label : item.placeText)
-                    InspectorRow("Filename", item.filename)
-                    InspectorRow("Relative Path", item.relativePath)
-                }
-
-                InspectorSection("Media") {
-                    InspectorRow("Type", item.kind.label)
-                    InspectorRow("File Size", ByteCountFormatter.string(fromByteCount: item.fileSize, countStyle: .file))
-                    if let width = item.width, let height = item.height {
-                        InspectorRow("Dimensions", "\(width) × \(height)")
+                DisclosureGroup(isExpanded: $isFileDetailsExpanded) {
+                    VStack(spacing: 0) {
+                        InspectorRow("Filename", item.filename)
+                        InspectorRow("Path", item.relativePath)
+                        InspectorRow("Type", item.kind.label)
+                        InspectorRow("Favorite", appState.favoriteState(for: item) ? "Yes" : "No")
                     }
+                    .padding(.top, 6)
+                } label: {
+                    Label("File details", systemImage: "doc")
+                        .font(LensInspectorMetrics.section)
+                }
+                .padding(LensInspectorMetrics.cardInset)
+                .lensSurface(radius: LensInspectorMetrics.radius)
+
+                InspectorSection("Capture", systemImage: "calendar") {
+                    InspectorRow("Created", item.captureDateLocalText)
+                    InspectorRow("Source", item.dateSource.label)
                     if let duration = item.duration, duration.isFinite {
-                        InspectorRow("Duration", format(duration))
+                        InspectorRow("Duration", duration.formatted(.number.precision(.fractionLength(0))) + " seconds")
                     }
                 }
 
-                InspectorSection("Camera") {
-                    InspectorRow("Camera", item.cameraText.isEmpty ? "None" : item.cameraText)
-                    InspectorRow("Lens", item.lensModel ?? "None")
+                InspectorSection("Camera", systemImage: "camera") {
+                    InspectorRow("Camera", item.cameraText.isEmpty ? "Not recorded" : item.cameraText)
+                    InspectorRow("Lens", item.lensModel ?? "Not recorded")
                 }
 
-                InspectorSection("More Details") {
-                    InspectorRow("Favorite", appState.favoriteState(for: item) ? "Yes" : "No")
-                    InspectorRow("Caption", item.caption ?? "None")
-                    InspectorRow("Keywords", item.keywords.isEmpty ? "None" : item.keywords.joined(separator: ", "))
+                InspectorSection("Location", systemImage: "mappin.and.ellipse") {
+                    InspectorRow("Place", item.placeText.isEmpty ? "Not recorded" : item.placeText)
                     if let latitude = item.latitude, let longitude = item.longitude {
                         InspectorRow("GPS", String(format: "%.5f, %.5f", latitude, longitude))
                     }
+                    InspectorRow("Source", item.locationSource.label)
+                }
+
+                InspectorSection("Notes & keywords", systemImage: "text.alignleft") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(item.caption?.nilIfEmpty ?? "No caption")
+                            .font(LensInspectorMetrics.body)
+                            .foregroundStyle(item.caption?.nilIfEmpty == nil ? .secondary : .primary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if item.keywords.isEmpty {
+                            Label("No keywords", systemImage: "tag")
+                                .font(LensInspectorMetrics.caption).foregroundStyle(.secondary)
+                        } else {
+                            LensFlowLayout(spacing: 5) {
+                                ForEach(Array(item.keywords.enumerated()), id: \.offset) { _, keyword in
+                                    Text(keyword)
+                                        .font(LensInspectorMetrics.caption)
+                                        .padding(.horizontal, 7).padding(.vertical, 4)
+                                        .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 5))
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("Keywords: " + item.keywords.joined(separator: ", "))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(LensInspectorMetrics.cardInset)
                 }
             }
         }
-    }
-
-    private func format(_ interval: TimeInterval) -> String {
-        let seconds = Int(interval)
-        return String(format: "%d:%02d", seconds / 60, seconds % 60)
-    }
-
-    private var itemSymbol: String {
-        switch item?.kind {
-        case .video: "film"
-        case .livePhoto: "photo"
-        case .photo: "photo"
-        case nil: "sidebar.right"
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !isBatch, let item {
+                InspectorActionBar(item: item) { editingItem = item }
+            }
         }
+        .sheet(item: $editingItem) { item in
+            MediaMetadataEditorSheet(item: item).environmentObject(appState)
+        }
+        .accessibilityIdentifier("media-inspector")
     }
 }
 
@@ -81,16 +109,13 @@ struct InspectorSidebar<Content: View>: View {
     let emptyTitle: String
     let emptySystemImage: String
     let emptyMessage: String
+    let scrollsContent: Bool
     private let content: Content
 
     init(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        isEmpty: Bool,
-        emptyTitle: String,
-        emptySystemImage: String,
-        emptyMessage: String,
+        title: String, subtitle: String, systemImage: String,
+        isEmpty: Bool, emptyTitle: String, emptySystemImage: String, emptyMessage: String,
+        scrollsContent: Bool = true,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -100,254 +125,266 @@ struct InspectorSidebar<Content: View>: View {
         self.emptyTitle = emptyTitle
         self.emptySystemImage = emptySystemImage
         self.emptyMessage = emptyMessage
+        self.scrollsContent = scrollsContent
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-
+            HStack(spacing: 8) {
+                Image(systemName: systemImage).foregroundStyle(.secondary).accessibilityHidden(true)
+                Text(title).font(LensInspectorMetrics.section).accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 4)
+                Text(subtitle).font(LensInspectorMetrics.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .padding(.horizontal, LensInspectorMetrics.inset)
+            .frame(height: 44)
             Divider()
-
             if isEmpty {
-                ContentUnavailableView(emptyTitle, systemImage: emptySystemImage, description: Text(emptyMessage))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(18)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        content
-                    }
-                    .padding(14)
+                VStack(spacing: 10) {
+                    Image(systemName: emptySystemImage)
+                        .font(.system(size: 27, weight: .light))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 64, height: 64)
+                        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
+                        .accessibilityHidden(true)
+                    Text(emptyTitle).font(.system(size: 14, weight: .semibold))
+                    Text(emptyMessage).font(LensInspectorMetrics.body)
+                        .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .scrollIndicators(.visible)
+                .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if scrollsContent {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: LensInspectorMetrics.sectionSpacing) { content }
+                        .padding(LensInspectorMetrics.inset)
+                }
+            } else {
+                content
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .foregroundStyle(isEmpty ? Color.secondary : Color.accentColor)
-                .frame(width: 24)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.headline)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
-        .background(.bar)
+        .background(LensTheme.sidebar)
+        .overlay(alignment: .leading) { LensTheme.line.frame(width: 1).allowsHitTesting(false) }
     }
 }
 
 private struct MediaInspectorSummary: View {
     @EnvironmentObject private var appState: AppState
     let item: MediaItem
+    @State private var isHovered = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            AsyncThumbnailView(
-                item: item,
-                showsHoverOverlay: false,
-                showsSelection: false,
-                cornerRadius: 7,
-                fillsAvailableSpace: true
-            )
-            .environmentObject(appState)
-            .frame(width: 92, height: 92)
-            .onTapGesture {
-                appState.viewInViewer(item)
+        VStack(alignment: .leading, spacing: 12) {
+            Button { appState.viewInViewer(item) } label: {
+                AsyncMediaThumbnailImage(item: item, fillsAvailableSpace: false, cornerRadius: LensInspectorMetrics.radius)
+                    .frame(height: LensInspectorMetrics.previewHeight)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: item.kind == .video ? "play.fill" : "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.black, in: Circle())
+                            .padding(8)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: LensInspectorMetrics.radius)
+                            .strokeBorder(isHovered ? Color.accentColor : LensTheme.line, lineWidth: isHovered ? 2 : 1)
+                    }
             }
+            .buttonStyle(.plain)
+            .onHover { isHovered = $0 }
+            .help("Open \(item.filename) in the viewer")
             .accessibilityLabel("Preview \(item.filename)")
-            .accessibilityHint("Opens this item in the viewer.")
+            .accessibilityIdentifier("inspector-preview")
 
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 6) {
-                    Image(systemName: mediaSystemImage)
-                        .foregroundStyle(.secondary)
-                    Text(item.kind.label)
-                        .font(.caption.weight(.semibold))
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.quaternary.opacity(0.35), in: Capsule())
-
+            VStack(alignment: .leading, spacing: 6) {
                 Text(item.filename)
-                    .font(.callout.weight(.semibold))
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-
-                Text(item.captureDateLocalText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(2).truncationMode(.middle).textSelection(.enabled).help(item.filename)
+                HStack(spacing: 6) {
+                    Label(item.kind.label, systemImage: item.kind == .video ? "film" : "photo")
+                    if item.isMissing {
+                        Text("·").accessibilityHidden(true)
+                        Label("Original missing", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                }
+                .font(LensInspectorMetrics.caption).foregroundStyle(.secondary)
             }
-
-            Spacer(minLength: 0)
-        }
-        .padding(10)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            HStack(spacing: 0) {
+                summaryMetric("Dimensions", value: dimensions, symbol: "aspectratio")
+                Divider().frame(height: 26).padding(.horizontal, 10)
+                summaryMetric("File size", value: ByteCountFormatter.string(fromByteCount: item.fileSize, countStyle: .file), symbol: "doc")
+            }
+            .padding(LensInspectorMetrics.cardInset)
+            .lensSurface(radius: LensInspectorMetrics.radius)
         }
     }
 
-    private var mediaSystemImage: String {
-        switch item.kind {
-        case .video: "film"
-        case .livePhoto: "photo"
-        case .photo: "photo"
+    private var dimensions: String {
+        guard let width = item.width, let height = item.height else { return "Unknown" }
+        return "\(width) × \(height)"
+    }
+
+    private func summaryMetric(_ label: String, value: String, symbol: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(label, systemImage: symbol).font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(value).font(.system(size: 11, weight: .medium)).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.85).help(value)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 
 private struct InspectorActionBar: View {
     @EnvironmentObject private var appState: AppState
     let item: MediaItem
+    let edit: () -> Void
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            horizontalActions
-            compactActions
-        }
-    }
-
-    private var horizontalActions: some View {
-        HStack(spacing: 7) {
-            Button {
-                appState.viewInViewer(item)
-            } label: {
-                Label("View", systemImage: item.kind == .video ? "play.rectangle" : "arrow.up.left.and.arrow.down.right")
+        HStack(spacing: 6) {
+            Button(action: edit) {
+                Label("Edit", systemImage: "square.and.pencil")
             }
-            .buttonStyle(.borderedProminent)
             .labelStyle(.titleAndIcon)
-            .controlSize(.small)
-            .help("Open in viewer")
-
-            Spacer(minLength: 0)
-
-            favoriteButton
-            albumMenu
-
-            inspectorButton("Reveal", systemImage: "finder") {
-                appState.revealInFinder(item)
+            .buttonStyle(InspectorActionButtonStyle(width: 64, tint: .accentColor))
+            .help("Edit Metadata")
+            .accessibilityLabel("Edit Metadata")
+            .accessibilityIdentifier("inspector-edit-metadata")
+            MediaFavoriteButton(items: [item])
+                .buttonStyle(InspectorActionButtonStyle())
+                .labelStyle(.iconOnly)
+                .accessibilityValue(appState.favoriteState(for: item) ? "Favorite" : "Not a favorite")
+            AddToAlbumMenu(items: [item])
+                .labelStyle(.iconOnly)
+                .menuStyle(InspectorActionMenuStyle())
+            Menu {
+                Section("Open") {
+                    Button("Open in Viewer", systemImage: "arrow.up.left.and.arrow.down.right") { appState.viewInViewer(item) }
+                    Button("Reveal in Finder", systemImage: "finder") { appState.revealInFinder(item) }
+                }
+                Section("Show In") {
+                    Button("Timeline", systemImage: "calendar") { appState.showInTimeline(item) }
+                    Button("Folder", systemImage: "folder") { appState.showInFolder(item) }
+                    Button("Map", systemImage: "map") { appState.showOnMap(item) }
+                        .disabled(item.latitude == nil || item.longitude == nil)
+                }
+                Section("Copy & Share") {
+                    Button("Copy Original…", systemImage: "doc.on.doc") { appState.copyOriginal(item) }
+                    Button("Share…", systemImage: "square.and.arrow.up") { appState.shareOriginal(item) }
+                }
+            } label: {
+                Label("More Actions", systemImage: "ellipsis")
             }
-            .help("Reveal in Finder")
-
-            inspectorButton("Copy", systemImage: "doc.on.doc") {
-                appState.copyOriginal(item)
-            }
-            .help("Copy original")
-
-            inspectorButton("Share", systemImage: "square.and.arrow.up") {
-                appState.shareOriginal(item)
-            }
-            .help("Share original")
+            .menuStyle(InspectorActionMenuStyle())
+            .help("Open, locate, copy, or share this item")
+            .accessibilityLabel("More Actions")
 
             Button(role: .destructive) {
                 appState.requestDelete(item)
             } label: {
-                Label("Move to Trash", systemImage: "trash")
+                Label("Delete", systemImage: "trash")
             }
-            .buttonStyle(.bordered)
-            .labelStyle(.iconOnly)
-            .controlSize(.small)
-            .help("Move to Trash")
+            .buttonStyle(InspectorActionButtonStyle(tint: .red))
+            .help("Move original to Trash…")
             .accessibilityLabel("Move to Trash")
+            .accessibilityHint("Asks for confirmation before moving the original file to Trash.")
+            .accessibilityIdentifier("inspector-delete")
         }
-    }
-
-    private var compactActions: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
-                Button {
-                    appState.viewInViewer(item)
-                } label: {
-                    Label("View", systemImage: item.kind == .video ? "play.rectangle" : "arrow.up.left.and.arrow.down.right")
-                }
-                .buttonStyle(.borderedProminent)
-                .labelStyle(.titleAndIcon)
-                .controlSize(.small)
-                .help("Open in viewer")
-
-                Spacer(minLength: 0)
-
-                favoriteButton
-                albumMenu
-
-                Button(role: .destructive) {
-                    appState.requestDelete(item)
-                } label: {
-                    Label("Move to Trash", systemImage: "trash")
-                }
-                .buttonStyle(.bordered)
-                .labelStyle(.iconOnly)
-                .controlSize(.small)
-                .help("Move to Trash")
-                .accessibilityLabel("Move to Trash")
-            }
-
-            HStack(spacing: 7) {
-                inspectorButton("Reveal", systemImage: "finder") {
-                    appState.revealInFinder(item)
-                }
-                .help("Reveal in Finder")
-
-                inspectorButton("Copy", systemImage: "doc.on.doc") {
-                    appState.copyOriginal(item)
-                }
-                .help("Copy original")
-
-                inspectorButton("Share", systemImage: "square.and.arrow.up") {
-                    appState.shareOriginal(item)
-                }
-                .help("Share original")
-
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
-    private func inspectorButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-        }
-        .buttonStyle(.bordered)
         .labelStyle(.iconOnly)
-        .controlSize(.small)
-    }
-
-    private var favoriteButton: some View {
-        MediaFavoriteButton(items: [item])
-            .buttonStyle(.bordered)
-            .labelStyle(.iconOnly)
-            .controlSize(.small)
-    }
-
-    private var albumMenu: some View {
-        AddToAlbumMenu(items: [item])
-            .menuStyle(.button)
-            .labelStyle(.iconOnly)
-            .controlSize(.small)
+        .frame(maxWidth: .infinity)
+        .padding(LensInspectorMetrics.inset)
+        .background(LensChrome())
+        .overlay(alignment: .top) { Divider() }
     }
 }
 
-private struct BatchMetadataPanel: View {
+// Buttons and menus use the same surface instead of their different native bezel heights.
+private struct InspectorActionSurface: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorSchemeContrast) private var contrast
+    @State private var isHovered = false
+    var width: CGFloat = 32
+    var tint: Color = .primary
+    var isPressed = false
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(tint)
+            .frame(width: width, height: LensInspectorMetrics.actionHeight)
+            .background(tint.opacity(isPressed ? 0.18 : isHovered ? 0.12 : 0.07),
+                        in: RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(tint.opacity(contrast == .increased ? 0.6 : 0.1), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .opacity(isEnabled ? 1 : 0.4)
+            .onHover { isHovered = $0 && isEnabled }
+    }
+}
+
+private struct InspectorActionButtonStyle: ButtonStyle {
+    var width: CGFloat = 32
+    var tint: Color = .primary
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .modifier(InspectorActionSurface(width: width, tint: tint, isPressed: configuration.isPressed))
+    }
+}
+
+private struct InspectorActionMenuStyle: MenuStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Menu(configuration)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .modifier(InspectorActionSurface())
+    }
+}
+
+struct MediaMetadataEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let item: MediaItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Edit Metadata", systemImage: "square.and.pencil")
+                    .font(.system(size: 16, weight: .semibold))
+                Text(item.filename)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("Edits stay in DriveLens. Original files remain unchanged.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+            Divider()
+            MetadataEditingPanel(items: [item], onSave: { dismiss() }, onClose: { dismiss() })
+        }
+        .labelStyle(.titleAndIcon)
+        .buttonStyle(.bordered)
+        .frame(width: 480, height: 500)
+        .accessibilityIdentifier("metadata-editor")
+        .background(LensTheme.sidebar)
+    }
+}
+
+private struct MetadataEditingPanel: View {
     @EnvironmentObject private var appState: AppState
     let items: [MediaItem]
+    var onSave: (() -> Void)? = nil
+    var onClose: (() -> Void)? = nil
 
+    @State private var isSaving = false
     @State private var keyword = ""
     @State private var replaceKeywords = false
     @State private var keywordsText = ""
@@ -369,25 +406,93 @@ private struct BatchMetadataPanel: View {
     @State private var albumName = ""
     @State private var metadataError: String?
 
-    private var summary: BatchMetadataSummary {
-        appState.batchMetadataSummary(for: items)
-    }
+    @State private var summary: BatchMetadataSummary = .empty
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            BatchSelectionSummary(items: items)
+        ScrollView {
+            editorContents.padding(LensInspectorMetrics.inset)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            editingActions
+                .padding(LensInspectorMetrics.inset)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(LensChrome())
+                .overlay(alignment: .top) { Divider() }
+        }
+        .disabled(isSaving)
+        .onAppear { resetEditableFields() }
+        .onChange(of: items) { oldItems, newItems in
+            if oldItems.map(\.id) != newItems.map(\.id) {
+                resetEditableFields()
+            } else {
+                summary = appState.batchMetadataSummary(for: newItems)
+            }
+        }
+    }
 
-            InspectorSection("Shared Metadata") {
-                InspectorRow("Created Date", createdDateSummaryText)
-                InspectorRow("Keywords", summary.sharedKeywords.isEmpty ? "None shared" : summary.sharedKeywords.joined(separator: ", "))
-                InspectorRow("Caption", summary.hasMixedCaptions ? "Mixed" : summary.commonCaption ?? "None")
-                InspectorRow("Camera", cameraSummaryText)
-                InspectorRow("Location", summary.hasMixedLocations ? "Mixed" : summary.commonLocationText ?? "None")
-                InspectorRow("Favorite", favoriteText)
+    private var editingActions: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(pendingFieldCount == 0 ? "Choose fields to edit" : "\(pendingFieldCount) field\(pendingFieldCount == 1 ? "" : "s") selected")
+                .font(LensInspectorMetrics.caption)
+                .foregroundStyle(.secondary)
+            if let metadataError {
+                Text(metadataError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(metadataError)
+                    .accessibilityIdentifier("metadata-error")
+            }
+            HStack(spacing: 8) {
+                Button {
+                    applyMetadataEdits()
+                } label: {
+                    Label(isSaving ? "Saving…" : "Apply", systemImage: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(!hasPendingMetadataChange || isSaving)
+                .accessibilityLabel("Apply metadata changes")
+                .accessibilityIdentifier("metadata-apply")
+
+                Button {
+                    resetEditableFields()
+                } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!hasPendingMetadataChange)
+                .accessibilityIdentifier("metadata-reset")
+                if let onClose {
+                    Spacer()
+                    Button("Close", action: onClose)
+                        .keyboardShortcut(.cancelAction)
+                }
+            }
+        }
+    }
+
+    private var editorContents: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if items.count > 1 {
+                BatchSelectionSummary(items: items)
+
+                DisclosureGroup("Shared metadata") {
+                    InspectorRow("Created Date", createdDateSummaryText)
+                    InspectorRow("Keywords", summary.sharedKeywords.isEmpty ? "None shared" : summary.sharedKeywords.joined(separator: ", "))
+                    InspectorRow("Caption", summary.hasMixedCaptions ? "Mixed" : summary.commonCaption ?? "None")
+                    InspectorRow("Camera", cameraSummaryText)
+                    InspectorRow("Location", summary.hasMixedLocations ? "Mixed" : summary.commonLocationText ?? "None")
+                    InspectorRow("Favorite", favoriteText)
+                }
+                .font(LensInspectorMetrics.section)
+                .padding(LensInspectorMetrics.cardInset)
+                .lensSurface(radius: LensInspectorMetrics.radius)
             }
 
-            InspectorSection("Edit Metadata") {
-                VStack(alignment: .leading, spacing: 12) {
+            InspectorSection("Edit fields", systemImage: "slider.horizontal.3") {
+                VStack(alignment: .leading, spacing: 0) {
                     metadataToggle("Created Date", systemImage: "calendar", isOn: $updateCreatedDate) {
                         DatePicker(
                             "Created Date",
@@ -406,7 +511,8 @@ private struct BatchMetadataPanel: View {
                     }
 
                     metadataToggle("Caption", systemImage: "text.quote", isOn: $updateCaption) {
-                        TextField(summary.hasMixedCaptions ? "Replace mixed captions" : "Caption", text: $caption)
+                        TextField(summary.hasMixedCaptions ? "Replace mixed captions" : "Caption", text: $caption, axis: .vertical)
+                            .lineLimit(2...5)
                             .textFieldStyle(.roundedBorder)
                             .accessibilityLabel("Caption")
                     }
@@ -429,8 +535,8 @@ private struct BatchMetadataPanel: View {
                     metadataToggle("Location", systemImage: "mappin.and.ellipse", isOn: $updateLocation) {
                         Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 8) {
                             GridRow {
-                                TextField("Latitude", text: $latitude)
-                                TextField("Longitude", text: $longitude)
+                                TextField("Latitude", text: $latitude).accessibilityIdentifier("metadata-latitude")
+                                TextField("Longitude", text: $longitude).accessibilityIdentifier("metadata-longitude")
                             }
                             GridRow {
                                 TextField("City", text: $city)
@@ -449,7 +555,7 @@ private struct BatchMetadataPanel: View {
                         Label("Favorite", systemImage: "heart")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                            .frame(width: 104, alignment: .leading)
+                        Spacer(minLength: 4)
 
                         Picker("Favorite", selection: $favoriteChoice) {
                             ForEach(BatchFavoriteChoice.allCases) { choice in
@@ -460,91 +566,67 @@ private struct BatchMetadataPanel: View {
                         .labelsHidden()
                         .accessibilityLabel("Favorite")
                     }
+                    .padding(LensInspectorMetrics.cardInset)
+                }
+            }
 
-                    if let metadataError {
-                        Text(metadataError)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .accessibilityLabel(metadataError)
-                    }
-
-                    HStack(spacing: 8) {
+            if items.count > 1 {
+                DisclosureGroup("Add a keyword to all") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("Keyword", text: $keyword)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { addKeyword() }
+                            .accessibilityLabel("Keyword to add")
                         Button {
-                            applyMetadataEdits()
+                            addKeyword()
                         } label: {
-                            Label("Apply Changes", systemImage: "checkmark.circle")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .disabled(!hasPendingMetadataChange)
-
-                        Button {
-                            resetEditableFields()
-                        } label: {
-                            Label("Reset", systemImage: "arrow.counterclockwise")
+                            Label("Add Keyword", systemImage: "tag")
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .disabled(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
+                    .padding(.top, 10)
                 }
-                .padding(10)
-            }
+                .font(LensInspectorMetrics.section)
+                .padding(LensInspectorMetrics.cardInset)
+                .lensSurface(radius: LensInspectorMetrics.radius)
 
-            InspectorSection("Add Keyword") {
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("Keyword", text: $keyword)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { addKeyword() }
-                        .accessibilityLabel("Keyword to add")
-                    Button {
-                        addKeyword()
-                    } label: {
-                        Label("Add Keyword", systemImage: "tag")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                .padding(10)
-            }
-
-            InspectorSection("Custom Album") {
-                VStack(alignment: .leading, spacing: 8) {
-                    if !appState.customAlbums.isEmpty {
-                        Menu {
-                            ForEach(appState.customAlbums) { album in
-                                Button(album.name) {
-                                    albumName = album.name
+                DisclosureGroup("Add to an album") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !appState.customAlbums.isEmpty {
+                            Menu {
+                                ForEach(appState.customAlbums) { album in
+                                    Button(album.name) {
+                                        albumName = album.name
+                                    }
                                 }
+                            } label: {
+                                Label(albumName.isEmpty ? "Choose Existing Album" : albumName, systemImage: "rectangle.stack")
                             }
-                        } label: {
-                            Label(albumName.isEmpty ? "Choose Existing Album" : albumName, systemImage: "rectangle.stack")
+                            .menuStyle(.button)
+                            .controlSize(.small)
                         }
-                        .menuStyle(.button)
+
+                        TextField("Album name", text: $albumName)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { addToAlbum() }
+
+                        Button {
+                            addToAlbum()
+                        } label: {
+                            Label("Add to Album", systemImage: "rectangle.stack.badge.plus")
+                        }
+                        .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .disabled(albumName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-
-                    TextField("Album name", text: $albumName)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { addToAlbum() }
-
-                    Button {
-                        addToAlbum()
-                    } label: {
-                        Label("Add to Album", systemImage: "rectangle.stack.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(albumName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .padding(.top, 10)
                 }
-                .padding(10)
+                .font(LensInspectorMetrics.section)
+                .padding(LensInspectorMetrics.cardInset)
+                .lensSurface(radius: LensInspectorMetrics.radius)
             }
-        }
-        .onAppear {
-            resetEditableFields()
-        }
-        .onChange(of: items.map(\.id)) { _, _ in
-            resetEditableFields()
         }
     }
 
@@ -555,20 +637,45 @@ private struct BatchMetadataPanel: View {
         isOn: Binding<Bool>,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 5) {
             Toggle(isOn: isOn) {
                 Label(title, systemImage: systemImage)
-                    .font(.caption.weight(.semibold))
+                    .font(LensInspectorMetrics.section)
             }
             .toggleStyle(.checkbox)
-            .accessibilityLabel(title)
+            .accessibilityLabel("Edit " + title)
+            .accessibilityValue(isOn.wrappedValue ? "Editing" : "Unchanged")
+            .accessibilityIdentifier("metadata-field-" + title)
 
-            content()
-                .disabled(!isOn.wrappedValue)
-                .opacity(isOn.wrappedValue ? 1 : 0.55)
-                .padding(.leading, 22)
+            if isOn.wrappedValue {
+                content()
+                    .padding(.leading, 22)
+            } else {
+                Text(fieldSummary(title))
+                    .font(LensInspectorMetrics.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .padding(.leading, 22)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, LensInspectorMetrics.cardInset)
+        .padding(.vertical, 8)
+        .background(isOn.wrappedValue ? Color.accentColor.opacity(0.045) : Color.clear)
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 32) }
+    }
+
+    private func fieldSummary(_ title: String) -> String {
+        switch title {
+        case "Created Date": return createdDateSummaryText
+        case "Keywords": return summary.hasMixedKeywords ? "Mixed keywords" : summary.sharedKeywords.isEmpty ? "No keywords" : summary.sharedKeywords.joined(separator: ", ")
+        case "Caption": return summary.hasMixedCaptions ? "Mixed captions" : summary.commonCaption ?? "No caption"
+        case "Camera": return cameraSummaryText
+        case "Location": return summary.hasMixedLocations ? "Mixed locations" : summary.commonLocationText ?? "No location"
+        default: return "Unchanged"
         }
     }
+
 
     private var favoriteText: String {
         guard let isFavorite = summary.commonFavorite else { return "Mixed" }
@@ -589,14 +696,12 @@ private struct BatchMetadataPanel: View {
         return camera.isEmpty ? "None" : camera
     }
 
-    private var hasPendingMetadataChange: Bool {
-        replaceKeywords
-            || updateCaption
-            || updateCreatedDate
-            || updateCameraDetails
-            || updateLocation
-            || favoriteChoice != .leaveUnchanged
+    private var pendingFieldCount: Int {
+        [replaceKeywords, updateCaption, updateCreatedDate, updateCameraDetails, updateLocation,
+         favoriteChoice != .leaveUnchanged].filter { $0 }.count
     }
+
+    private var hasPendingMetadataChange: Bool { pendingFieldCount > 0 }
 
     private func addKeyword() {
         let value = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -630,7 +735,17 @@ private struct BatchMetadataPanel: View {
             favorite: favoriteChoice.favoriteValue
         )
 
-        Task { await appState.applyBatchMetadataUpdate(update, to: items) }
+        guard !isSaving else { return }
+        isSaving = true
+        Task {
+            let saved = await appState.applyBatchMetadataUpdate(update, to: items)
+            isSaving = false
+            if saved {
+                onSave?()
+            } else {
+                metadataError = appState.userMessage ?? "Could not save metadata. Please try again."
+            }
+        }
     }
 
     private func addToAlbum() {
@@ -640,6 +755,7 @@ private struct BatchMetadataPanel: View {
     }
 
     private func resetEditableFields() {
+        summary = appState.batchMetadataSummary(for: items)
         replaceKeywords = false
         updateCaption = false
         updateCreatedDate = false
@@ -732,27 +848,23 @@ private struct BatchSelectionSummary: View {
     let items: [MediaItem]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 9) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Color.accentColor)
-                Text("\(items.count) Selected")
-                    .font(.headline.weight(.semibold))
-                    .monospacedDigit()
-                Spacer()
+        HStack(spacing: 10) {
+            Image(systemName: "square.stack.3d.up")
+                .font(.system(size: 20, weight: .light))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 38, height: 38)
+                .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(items.count) items selected")
+                    .font(LensInspectorMetrics.section).monospacedDigit()
+                Text("\(photoCount) photo\(photoCount == 1 ? "" : "s") · \(videoCount) video\(videoCount == 1 ? "" : "s")")
+                    .font(LensInspectorMetrics.caption).foregroundStyle(.secondary)
             }
-
-            HStack(spacing: 8) {
-                MiniCount(systemImage: "photo", value: photoCount, label: "Photos")
-                MiniCount(systemImage: "film", value: videoCount, label: "Videos")
-            }
+            Spacer(minLength: 0)
         }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 
     private var photoCount: Int {
@@ -761,27 +873,6 @@ private struct BatchSelectionSummary: View {
 
     private var videoCount: Int {
         items.filter { $0.kind == .video }.count
-    }
-}
-
-private struct MiniCount: View {
-    let systemImage: String
-    let value: Int
-    let label: String
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: systemImage)
-            Text("\(value)")
-                .fontWeight(.semibold)
-                .monospacedDigit()
-            Text(label)
-        }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background(.quaternary.opacity(0.35), in: Capsule())
     }
 }
 
@@ -794,28 +885,25 @@ private extension String {
 
 private struct InspectorSection<Content: View>: View {
     let title: String
+    let systemImage: String?
     private let content: Content
 
-    init(_ title: String, @ViewBuilder content: () -> Content) {
+    init(_ title: String, systemImage: String? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.systemImage = systemImage
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-
-            VStack(spacing: 0) {
-                content
+            HStack(spacing: 6) {
+                if let systemImage { Image(systemName: systemImage).foregroundStyle(.secondary).accessibilityHidden(true) }
+                Text(title).accessibilityAddTraits(.isHeader)
             }
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-            }
+            .font(LensInspectorMetrics.section)
+            .padding(.horizontal, 2)
+            VStack(spacing: 0) { content }
+                .lensSurface(radius: LensInspectorMetrics.radius)
         }
     }
 }
@@ -830,28 +918,19 @@ private struct InspectorRow: View {
     }
 
     var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 0) {
-            GridRow(alignment: .firstTextBaseline) {
-                Text(label)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 86, alignment: .leading)
-
-                Text(value)
-                    .font(.caption)
-                    .foregroundStyle(value == "None" ? .secondary : .primary)
-                    .lineLimit(3)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: 62, alignment: .leading)
+            Text(value)
+                .foregroundStyle(value == "None" || value == "Not recorded" ? .secondary : .primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .overlay(alignment: .bottom) {
-            Divider()
-                .padding(.leading, 106)
-                .opacity(0.55)
-        }
+        .font(LensInspectorMetrics.body)
+        .padding(.horizontal, LensInspectorMetrics.cardInset)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
     }
 }

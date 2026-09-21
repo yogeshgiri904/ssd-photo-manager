@@ -22,29 +22,8 @@ struct TimelineView: View {
     var controlScope: TimelineControlScope = .none
     var backAction: (() -> Void)?
 
-    private var groupedSections: [(String, [MediaItem])] {
-        guard controlScope != .none else {
-            return groupedByDate(items, date: \.captureDate, ascending: false)
-        }
-
-        switch activeSort {
-        case .captureNewest:
-            return groupedByDate(items, date: \.captureDate, ascending: false)
-        case .captureOldest:
-            return groupedByDate(items, date: \.captureDate, ascending: true)
-        case .recentlyAdded:
-            return groupedByDate(items, date: \.addedAt, ascending: false, prefix: "Added")
-        case .fileName:
-            return groupedByFilename(items)
-        case .largestFile:
-            return [("Largest Files", items.sorted { lhs, rhs in
-                if lhs.fileSize == rhs.fileSize {
-                    return lhs.captureDate > rhs.captureDate
-                }
-                return lhs.fileSize > rhs.fileSize
-            })]
-        }
-    }
+    @State private var sections: [TimelineSection] = []
+    @State private var isGrouping = false
 
     private var activeSort: TimelineSortOption {
         switch controlScope {
@@ -64,22 +43,37 @@ struct TimelineView: View {
     }
 
     var body: some View {
-        HSplitView {
-            VStack(spacing: 0) {
-                if showsHeader {
-                    TimelineHeader(title: title, items: items, counts: counts, showsQuickFilters: showsQuickFilters, controlScope: controlScope, backAction: backAction)
-                        .environmentObject(appState)
-                    Divider()
+        GeometryReader { geometry in
+            HSplitView {
+                VStack(spacing: 0) {
+                    if showsHeader {
+                        TimelineHeader(title: title, items: items, counts: counts, showsQuickFilters: showsQuickFilters, controlScope: controlScope, backAction: backAction)
+                        Divider()
+                    }
+                    content
                 }
-                content
+                if appState.showingInspector && geometry.size.width >= 850 {
+                    MetadataInspectorView(item: appState.selectedMediaItem)
+                        .frame(minWidth: 260, idealWidth: 280, maxWidth: 340)
+                }
             }
-
-            if appState.showingInspector {
-                MetadataInspectorView(item: appState.selectedMediaItem)
-                    .frame(minWidth: 260, idealWidth: 300, maxWidth: 360)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if appState.showingInspector && geometry.size.width < 850 {
+                    CompactInspectorBar(item: appState.selectedMediaItem)
+                }
             }
         }
         .navigationTitle(title)
+        .task(id: TimelineSectionInput(items: items, sort: activeSort)) {
+            isGrouping = true
+            let input = TimelineSectionInput(items: items, sort: activeSort)
+            let work = Task.detached(priority: .userInitiated) { TimelineSections.make(input) }
+            let result = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+            guard !Task.isCancelled else { return }
+            sections = result
+            isGrouping = false
+            appState.updateVisibleSelectionScope(result.flatMap(\.items))
+        }
     }
 
     private var content: some View {
@@ -90,7 +84,9 @@ struct TimelineView: View {
                 ZStack(alignment: .bottom) {
                     ScrollView {
                         LazyVStack(alignment: .leading, pinnedViews: [.sectionHeaders]) {
-                            if items.isEmpty {
+                            if isGrouping && sections.isEmpty && !items.isEmpty {
+                                ProgressView("Organizing media…").frame(maxWidth: .infinity, minHeight: 300)
+                            } else if items.isEmpty {
                                 emptyState
                                     .frame(minHeight: max(420, geometry.size.height - 40))
                             } else {
@@ -98,7 +94,9 @@ struct TimelineView: View {
                                     jumpStrip(proxy: proxy)
                                 }
 
-                                ForEach(groupedSections, id: \.0) { section, sectionItems in
+                                ForEach(sections) { group in
+                                    let section = group.id
+                                    let sectionItems = group.items
                                     Section {
                                         LazyVGrid(columns: metrics.columns, alignment: .leading, spacing: metrics.spacing) {
                                             ForEach(sectionItems) { item in
@@ -180,7 +178,7 @@ struct TimelineView: View {
 
                     if !appState.selectedMediaItemIDs.isEmpty {
                         BatchSelectionBar(
-                            selectedCount: appState.selectedMediaItems(in: items).count,
+                            selectedCount: appState.selectedMediaItems(in: sections.flatMap(\.items)).count,
                             totalCount: items.count
                         )
                         .environmentObject(appState)
@@ -189,14 +187,14 @@ struct TimelineView: View {
                         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-                .background(Color(nsColor: .textBackgroundColor))
+                .background(LensTheme.canvas)
                 .focusable()
                 .focused($isGridFocused)
                 .focusEffectDisabled()
                 .overlay {
-                    Rectangle()
-                        .strokeBorder(isGridFocused ? Color.accentColor.opacity(0.55) : Color.clear, lineWidth: 2)
-                        .padding(2)
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(isGridFocused ? Color.accentColor.opacity(0.45) : Color.clear, lineWidth: 1)
+                        .padding(3)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
@@ -205,22 +203,16 @@ struct TimelineView: View {
                         isGridFocused = true
                     }
                 )
-                .onAppear {
-                    isGridFocused = true
-                    appState.updateVisibleSelectionScope(items)
-                }
-                .onChange(of: items.map(\.id)) { _, _ in
-                    appState.updateVisibleSelectionScope(items)
-                }
+                .onAppear { isGridFocused = true }
                 .onMoveCommand { direction in
                     switch direction {
-                    case .left, .up:
-                        appState.selectAdjacentItem(offset: -1)
-                    case .right, .down:
-                        appState.selectAdjacentItem(offset: 1)
-                    default:
-                        break
+                    case .left: appState.selectAdjacentItem(offset: -1)
+                    case .right: appState.selectAdjacentItem(offset: 1)
+                    case .up: appState.selectAdjacentItem(offset: -metrics.columns.count)
+                    case .down: appState.selectAdjacentItem(offset: metrics.columns.count)
+                    default: break
                     }
+                    if let item = appState.selectedMediaItem { proxy.scrollTo(item.id) }
                 }
                 .onKeyPress(.space) {
                     if let item = appState.selectedMediaItem {
@@ -277,7 +269,7 @@ struct TimelineView: View {
                         .monospacedDigit()
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(.thinMaterial, in: Capsule())
+                        .background(LensTheme.surface, in: Capsule())
                     Spacer()
                 }
                 .padding(.vertical, 12)
@@ -338,49 +330,6 @@ struct TimelineView: View {
         }
     }
 
-    private func groupedByDate(_ items: [MediaItem], date keyPath: KeyPath<MediaItem, Date>, ascending: Bool, prefix: String? = nil) -> [(String, [MediaItem])] {
-        Dictionary(grouping: items) { item in
-            let label = Self.dayFormatter.string(from: item[keyPath: keyPath])
-            return prefix.map { "\($0) \(label)" } ?? label
-        }
-        .map { title, values in
-            let sortedValues = values.sorted {
-                ascending ? $0[keyPath: keyPath] < $1[keyPath: keyPath] : $0[keyPath: keyPath] > $1[keyPath: keyPath]
-            }
-            return (title, sortedValues)
-        }
-        .sorted { lhs, rhs in
-            guard let left = lhs.1.first?[keyPath: keyPath], let right = rhs.1.first?[keyPath: keyPath] else {
-                return lhs.0 < rhs.0
-            }
-            return ascending ? left < right : left > right
-        }
-    }
-
-    private func groupedByFilename(_ items: [MediaItem]) -> [(String, [MediaItem])] {
-        Dictionary(grouping: items) { item in
-            guard let first = item.filename.trimmingCharacters(in: .whitespacesAndNewlines).first else {
-                return "#"
-            }
-            return first.isLetter ? String(first).uppercased() : "#"
-        }
-        .map { key, values in
-            (key, values.sorted { $0.filename.localizedStandardCompare($1.filename) == .orderedAscending })
-        }
-        .sorted { lhs, rhs in
-            if lhs.0 == "#" { return false }
-            if rhs.0 == "#" { return true }
-            return lhs.0 < rhs.0
-        }
-    }
-
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .full
-        formatter.timeStyle = .none
-        return formatter
-    }()
-
     private func open(_ item: MediaItem) {
         appState.clearMediaSelection()
         appState.selectedMediaItem = item
@@ -396,7 +345,7 @@ struct TimelineView: View {
         } else if flags.contains(.command) {
             appState.toggleMediaSelection(item)
         } else if flags.contains(.shift) {
-            appState.extendMediaSelection(to: item, in: items)
+            appState.extendMediaSelection(to: item, in: sections.flatMap(\.items))
         } else {
             appState.selectSingleMediaItem(item)
         }
@@ -439,11 +388,7 @@ private struct BatchSelectionBar: View {
         .controlSize(.small)
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.10), lineWidth: 1)
-        }
+        .lensSurface(radius: 8)
         .shadow(color: .black.opacity(0.16), radius: 14, y: 6)
         .frame(maxWidth: 860)
         .accessibilityElement(children: .contain)
@@ -616,7 +561,7 @@ private struct TimelineHeader: View {
         .padding(.horizontal, 18)
         .padding(.top, 15)
         .padding(.bottom, 14)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(LensTheme.sidebar)
     }
 
     private var titleBlock: some View {
@@ -636,7 +581,7 @@ private struct TimelineHeader: View {
                 Image(systemName: showsQuickFilters ? "rectangle.stack.fill" : "photo.stack")
                     .foregroundStyle(Color.accentColor)
                 Text(title)
-                    .font(.title2.weight(.semibold))
+                    .font(LensTheme.title)
             }
 
             Text(summary)
@@ -724,7 +669,7 @@ private struct TimelineHeader: View {
         if showsQuickFilters {
             let yearText = selectedYear.map { " from \($0)" } ?? ""
             let filterText = activeQuickFilter == .all ? "" : " · \(activeQuickFilter.title)"
-            return "\(total) indexed item\(total == 1 ? "" : "s")\(yearText)\(filterText) · \(activeSort.title)"
+            return "\(total.formatted()) item\(total == 1 ? "" : "s")\(yearText)\(filterText)"
         }
 
         return "\(total) catalogue item\(total == 1 ? "" : "s")"
@@ -903,14 +848,14 @@ private struct TimelineSectionHeader: View {
             Spacer()
         }
         .padding(.horizontal, horizontalPadding)
-        .padding(.vertical, 8)
-        .background(.bar)
+        .padding(.vertical, 12)
+        .background(LensChrome())
     }
 }
 
 private struct PhotoGridMetrics {
-    let spacing: CGFloat = 6
-    let horizontalPadding: CGFloat = 18
+    let spacing: CGFloat = LensTheme.gridSpacing
+    let horizontalPadding: CGFloat = LensTheme.pageInset
     let itemWidth: CGFloat
     let columns: [GridItem]
 
@@ -924,5 +869,28 @@ private struct PhotoGridMetrics {
             repeating: GridItem(.fixed(itemWidth), spacing: spacing, alignment: .top),
             count: count
         )
+    }
+}
+
+
+private struct CompactInspectorBar: View {
+    let item: MediaItem?
+    @State private var showingDetails = false
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "info.circle").foregroundStyle(.secondary)
+            Text(item?.filename ?? "Select an item to see its details")
+                .font(.caption).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 8)
+            Button("Inspect", systemImage: "sidebar.right") { showingDetails = true }
+                .disabled(item == nil)
+                .popover(isPresented: $showingDetails, arrowEdge: .bottom) {
+                    MetadataInspectorView(item: item).frame(width: 320, height: 480)
+                }
+                .help("Open media details")
+        }
+        .padding(.horizontal, LensTheme.pageInset).padding(.vertical, 10)
+        .background(LensChrome())
+        .overlay(alignment: .top) { Divider() }
     }
 }

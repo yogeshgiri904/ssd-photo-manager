@@ -96,11 +96,11 @@ struct PlacesView: View {
                 .padding(.top, 10)
 
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
+                    LazyHStack(spacing: 8) {
                         ForEach(items.prefix(80)) { item in
                             AsyncThumbnailView(item: item)
                                 .environmentObject(appState)
-                                .frame(width: 84, height: 84)
+                                .frame(width: 96, height: 96)
                                 .onTapGesture(count: 2) {
                                     appState.selectedMediaItem = item
                                     appState.showingViewer = true
@@ -120,8 +120,8 @@ struct PlacesView: View {
                     .padding(.bottom, 12)
                 }
             }
-            .frame(height: 128)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .frame(height: 144)
+            .background(LensTheme.sidebar)
         }
         .navigationTitle("Places")
     }
@@ -211,19 +211,13 @@ private struct PlacesHeader: View {
             }
         }
         .font(.callout)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.horizontal, LensTheme.pageInset)
+        .padding(.vertical, 18)
+        .background(LensTheme.sidebar)
     }
 
     private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label("Places", systemImage: "map")
-                .font(.title2.weight(.semibold))
-            Text(locatedCount == 0 ? "No mapped media yet" : "\(clusterCount) location cluster\(clusterCount == 1 ? "" : "s")")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
+        LensSectionTitle(title: "Places", subtitle: locatedCount == 0 ? "See where your memories happened." : "\(clusterCount) locations in your library")
     }
 
     private var actions: some View {
@@ -283,7 +277,7 @@ private struct MapClusterMarker: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .background(isSelected ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .background(LensTheme.surface, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(isSelected ? Color.accentColor.opacity(0.75) : Color.primary.opacity(0.12), lineWidth: 1)

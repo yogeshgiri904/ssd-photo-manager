@@ -3,6 +3,8 @@ import SwiftUI
 struct DuplicatesView: View {
     @EnvironmentObject private var appState: AppState
 
+    var refreshOnAppear = true
+
     private var selectedGroup: DuplicateGroup? {
         if let selectedDuplicateGroupID = appState.selectedDuplicateGroupID,
            let group = appState.duplicateGroups.first(where: { $0.id == selectedDuplicateGroupID }) {
@@ -15,6 +17,32 @@ struct DuplicatesView: View {
         GeometryReader { geometry in
             let layout = DuplicateReviewLayout(width: geometry.size.width, showsInspector: appState.showingInspector)
 
+            if appState.duplicateGroups.isEmpty {
+                VStack(spacing: 0) {
+                    header
+                    Divider()
+                    groupList
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(LensTheme.canvas)
+            } else if geometry.size.width < 700 {
+                VStack(spacing: 0) {
+                    header
+                    Divider()
+                    ScrollView(.horizontal) {
+                        LazyHStack(spacing: 8) {
+                            ForEach(appState.duplicateGroups) { group in
+                                DuplicateGroupButton(group: group, isSelected: group.id == selectedGroup?.id) {
+                                    appState.selectedDuplicateGroupID = group.id
+                                    appState.updateVisibleSelectionScope(group.sortedItems)
+                                }.frame(width: 240)
+                            }
+                        }.padding(12)
+                    }.frame(height: 90)
+                    Divider()
+                    DuplicateGroupDetail(group: selectedGroup)
+                }
+            } else {
             HStack(spacing: 0) {
                 duplicateListColumn
                     .frame(width: layout.listWidth)
@@ -39,11 +67,12 @@ struct DuplicatesView: View {
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .background(Color(nsColor: .textBackgroundColor))
+            .background(LensTheme.canvas)
+            }
         }
         .navigationTitle("Duplicates")
         .onAppear {
-            appState.refreshDuplicateGroups()
+            if refreshOnAppear { appState.refreshDuplicateGroups() }
             if let selectedGroup {
                 appState.updateVisibleSelectionScope(selectedGroup.sortedItems)
             }
@@ -61,7 +90,7 @@ struct DuplicatesView: View {
             Divider()
             groupList
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(LensTheme.sidebar)
     }
 
     private var header: some View {
@@ -74,7 +103,7 @@ struct DuplicatesView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Duplicates")
-                        .font(.title2.weight(.semibold))
+                        .font(LensTheme.title)
                     Text(summaryText)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -108,9 +137,9 @@ struct DuplicatesView: View {
                 }
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.horizontal, LensTheme.pageInset)
+        .padding(.vertical, 18)
+        .background(LensTheme.sidebar)
     }
 
     private var findDuplicatesButton: some View {
@@ -268,7 +297,7 @@ private struct DuplicateGroupDetail: View {
             Divider()
             detailContent
         }
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(LensTheme.canvas)
     }
 
     @ViewBuilder
@@ -290,16 +319,16 @@ private struct DuplicateGroupDetail: View {
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(LensTheme.sidebar)
         } else {
             HStack {
                 Label("Duplicate Review", systemImage: "rectangle.on.rectangle")
-                    .font(.title2.weight(.semibold))
+                    .font(LensTheme.title)
                 Spacer()
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(LensTheme.sidebar)
         }
     }
 
@@ -337,7 +366,7 @@ private struct DuplicateGroupDetail: View {
     private func titleBlock(_ group: DuplicateGroup) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("\(group.items.count) Exact Duplicates")
-                .font(.title2.weight(.semibold))
+                .font(LensTheme.title)
             Text("Same SHA-256 content hash. Suggested keeper is based on quality, metadata, location, and clean filename.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -395,7 +424,7 @@ private struct SuggestedKeeperBanner: View {
             Spacer(minLength: 0)
         }
         .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .background(LensTheme.surface, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.accentColor.opacity(0.22), lineWidth: 1)
@@ -446,7 +475,7 @@ private struct DuplicateItemCard: View {
                         .labelStyle(.titleAndIcon)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
-                        .background(.regularMaterial, in: Capsule())
+                        .background(LensTheme.surface, in: Capsule())
                         .padding(8)
                 }
             }
@@ -500,10 +529,10 @@ private struct DuplicateItemCard: View {
             }
         }
         .padding(10)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .background(LensTheme.sidebar, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isSuggestedKeeper ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.08), lineWidth: 1)
+                .stroke(isSuggestedKeeper ? Color.accentColor.opacity(0.35) : LensTheme.line, lineWidth: 1)
         }
     }
 

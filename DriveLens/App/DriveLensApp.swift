@@ -2,16 +2,33 @@ import SwiftUI
 
 @main
 struct DriveLensApp: App {
+    #if DESIGN_PREVIEW
+    @StateObject private var appState = DesignPreviewState.make()
+    #else
     @StateObject private var appState = AppState()
+    #endif
+    @AppStorage("browsing.thumbnailSize") private var savedGridSize = 92.0
+    @AppStorage("browsing.showInspector") private var savedInspector = true
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "library") {
             RootView()
                 .environmentObject(appState)
+                .onAppear {
+                    appState.gridSize = savedGridSize.isFinite ? min(220, max(92, savedGridSize)) : 92
+                    appState.showingInspector = savedInspector
+                }
+                .onChange(of: appState.gridSize) { _, value in savedGridSize = value }
+                .onChange(of: appState.showingInspector) { _, value in savedInspector = value }
                 .task {
+                    #if DESIGN_PREVIEW
+                    await DesignPreviewState.captureWindowIfRequested(appState)
+                    #else
                     await appState.restoreAccess()
+                    #endif
                 }
         }
+        .defaultSize(width: 1320, height: 840)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Add Folders to Catalogue...") {
@@ -200,6 +217,9 @@ struct DriveLensApp: App {
                 }
                 .keyboardShortcut("5", modifiers: [.command, .option])
             }
+        }
+        Settings {
+            LensSettingsView().environmentObject(appState)
         }
     }
 

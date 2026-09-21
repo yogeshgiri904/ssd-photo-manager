@@ -27,10 +27,13 @@ struct ThumbnailGenerator {
     }
 
     private func writeJPEG(_ image: CGImage, to url: URL) throws {
-        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
-            return
+        // Generated previews are small; encode completely before atomically replacing the cache file.
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
+            throw CocoaError(.fileWriteUnknown)
         }
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.82] as CFDictionary)
-        CGImageDestinationFinalize(destination)
+        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        try (data as Data).write(to: url, options: .atomic)
     }
 }

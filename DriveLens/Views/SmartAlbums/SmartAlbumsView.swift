@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SmartAlbumsView: View {
     @EnvironmentObject private var appState: AppState
+    var refreshOnAppear = true
     @State private var albumFilter = ""
     @State private var showingAlbumEditor = false
     @State private var albumToEdit: CustomAlbum?
@@ -16,7 +17,7 @@ struct SmartAlbumsView: View {
             }
         }
         .navigationTitle("Smart Albums")
-        .task { await appState.refreshSmartAlbums() }
+        .task { if refreshOnAppear { await appState.refreshSmartAlbums() } }
         .sheet(isPresented: $showingAlbumEditor, onDismiss: { albumToEdit = nil }) {
             CustomAlbumEditorSheet(album: albumToEdit)
                 .environmentObject(appState)
@@ -63,7 +64,7 @@ struct SmartAlbumsView: View {
                     .padding(.vertical, 20)
                 }
             }
-            .background(Color(nsColor: .textBackgroundColor))
+            .background(LensTheme.canvas)
         }
     }
 
@@ -132,7 +133,7 @@ struct SmartAlbumsView: View {
                         ProgressView()
                             .controlSize(.large)
                             .padding(18)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            .background(LensTheme.surface, in: RoundedRectangle(cornerRadius: 8))
                             .accessibilityLabel("Loading \(album.title)")
                     }
                 }
@@ -153,7 +154,7 @@ struct SmartAlbumsView: View {
             Button("Back to Smart Albums") { appState.closeSmartAlbum() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(LensTheme.canvas)
     }
 
     private var emptyCustomAlbum: some View {
@@ -165,7 +166,7 @@ struct SmartAlbumsView: View {
             Button("Back to Smart Albums") { appState.closeSmartAlbum() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(LensTheme.canvas)
     }
 
     private var noResults: some View {
@@ -325,21 +326,13 @@ private struct SmartAlbumsHeader: View {
 
             filterField.frame(maxWidth: 560)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.horizontal, LensTheme.pageInset)
+        .padding(.vertical, 18)
+        .background(LensTheme.sidebar)
     }
 
     private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label("Smart Albums", systemImage: "sparkles.rectangle.stack")
-                .font(.title2.weight(.semibold))
-                .symbolRenderingMode(.hierarchical)
-            Text("Browse automatic groups and albums you create.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
+        LensSectionTitle(title: "Smart Albums", subtitle: "Collected automatically. Curated by you.")
     }
 
     private var metrics: some View {
@@ -393,11 +386,11 @@ private struct SmartAlbumsHeader: View {
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 8)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .background(LensTheme.surface, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(
-                    isFilterFocused ? Color.accentColor.opacity(0.68) : Color.primary.opacity(0.09),
+                    isFilterFocused ? Color.accentColor.opacity(0.68) : LensTheme.line,
                     lineWidth: isFilterFocused ? 2 : 1
                 )
         }
@@ -468,11 +461,7 @@ private struct EmptyCustomAlbumsCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        }
+        .lensSurface(radius: 10)
     }
 }
 
@@ -500,7 +489,7 @@ private struct SmartAlbumDetailHeader: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(LensTheme.sidebar)
     }
 
     private var backButton: some View {
@@ -610,7 +599,7 @@ private struct SmartAlbumCard: View {
                     .stroke(
                         isFocused
                             ? Color.accentColor
-                            : (isHovering ? Color.accentColor.opacity(0.48) : Color.primary.opacity(0.09)),
+                            : (isHovering ? Color.accentColor.opacity(0.48) : LensTheme.line),
                         lineWidth: isFocused ? 2 : (isHovering ? 1.5 : 1)
                     )
             }
@@ -665,7 +654,7 @@ private struct SmartAlbumCard: View {
     private var cardBackground: Color {
         isHovering
             ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.09)
-            : Color(nsColor: .controlBackgroundColor)
+            : LensTheme.surface
     }
 }
 
@@ -674,17 +663,16 @@ private struct SmartAlbumCover: View {
     let category: SmartAlbumCategory
     let items: [MediaItem]
     let showsOpenAffordance: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 coverContent(size: geometry.size)
 
-                LinearGradient(
-                    colors: [.black.opacity(0.22), .clear, .black.opacity(0.12)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+                if !items.isEmpty {
+                    LinearGradient(colors: [.black.opacity(0.22), .clear, .black.opacity(0.12)], startPoint: .top, endPoint: .bottom)
+                }
 
                 VStack {
                     HStack(alignment: .top) {
@@ -692,7 +680,7 @@ private struct SmartAlbumCover: View {
                         Spacer(minLength: 8)
                         if showsOpenAffordance && !album.isPlaceholder {
                             openAffordance
-                                .transition(.scale(scale: 0.8).combined(with: .opacity))
+                                .transition(reduceMotion ? .identity : .scale(scale: 0.8).combined(with: .opacity))
                         }
                     }
                     Spacer(minLength: 0)
@@ -758,26 +746,15 @@ private struct SmartAlbumCover: View {
 
     private var emptyCover: some View {
         ZStack {
-            LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-
-            Circle()
-                .fill(.white.opacity(0.10))
-                .frame(width: 170, height: 170)
-                .offset(x: 90, y: -54)
-
-            Circle()
-                .fill(.white.opacity(0.07))
-                .frame(width: 120, height: 120)
-                .offset(x: -110, y: 68)
-
-            VStack(spacing: 9) {
+            LensTheme.surface
+            LinearGradient(colors: [Color.accentColor.opacity(0.09), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
+            VStack(spacing: 12) {
                 Image(systemName: album.systemImage)
-                    .font(.system(size: 32, weight: .semibold))
-                    .symbolRenderingMode(.hierarchical)
+                    .font(.system(size: 34, weight: .light))
+                    .foregroundStyle(Color.accentColor)
                 Text(emptyCoverText)
-                    .font(.caption.weight(.semibold))
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            .foregroundStyle(.white.opacity(0.94))
         }
     }
 
@@ -787,7 +764,7 @@ private struct SmartAlbumCover: View {
             .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background(.ultraThinMaterial, in: Capsule())
+            .background(LensTheme.surface, in: Capsule())
     }
 
     private var openAffordance: some View {
@@ -795,7 +772,7 @@ private struct SmartAlbumCover: View {
             .font(.caption.weight(.bold))
             .foregroundStyle(.primary)
             .frame(width: 28, height: 28)
-            .background(.ultraThinMaterial, in: Circle())
+            .background(LensTheme.surface, in: Circle())
     }
 
     private var emptyCoverText: String {
@@ -807,22 +784,7 @@ private struct SmartAlbumCover: View {
         return "Preview Unavailable"
     }
 
-    private var gradientColors: [Color] {
-        switch category {
-        case .highlights:
-            return [.purple.opacity(0.92), .indigo.opacity(0.94)]
-        case .devices:
-            return [.blue.opacity(0.92), .cyan.opacity(0.80)]
-        case .places:
-            return [.teal.opacity(0.92), .green.opacity(0.78)]
-        case .custom:
-            return [.orange.opacity(0.92), .pink.opacity(0.78)]
-        case .catalogueHealth:
-            return [.pink.opacity(0.90), .red.opacity(0.78)]
-        case .comingLater:
-            return [.indigo.opacity(0.74), .gray.opacity(0.82)]
-        }
-    }
+
 }
 
 private struct CustomAlbumEditorSheet: View {
@@ -966,11 +928,7 @@ private struct HeaderBadge: View {
         .font(.callout)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        }
+        .lensSurface(radius: 7)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(value) \(label)")
     }
